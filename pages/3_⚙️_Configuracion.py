@@ -237,9 +237,10 @@ elif opcion == "Insumos":
                     st.warning("Descripción obligatoria")
 
     with t2:
+        # AQUI ESTA LA MAGIA: Configuramos que la columna 'Nombre' diga 'Descripción'
         column_config = {
             "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
-            "Nombre": st.column_config.TextColumn("Descripción", width="medium"),
+            "Nombre": st.column_config.TextColumn("Descripción del Insumo", width="large", required=True),
             "Cantidad": st.column_config.NumberColumn("Stock Actual"),
             "Unidad": st.column_config.SelectboxColumn("Unidad", options=lista_unidades, required=True),
             "stock_minimo": st.column_config.NumberColumn("Stock Mínimo ⚠️")
