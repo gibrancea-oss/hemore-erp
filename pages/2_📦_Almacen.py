@@ -14,10 +14,10 @@ utils.validar_login()
 
 supabase = utils.supabase 
 
-# --- FUNCIÓN CORREGIDA PARA DESCARGAR EXCEL ---
+# --- FUNCIÓN CORREGIDA PARA DESCARGAR EXCEL (SOLUCIÓN FINAL) ---
 def convertir_df_a_excel(df):
     output = io.BytesIO()
-    # CAMBIO: Quitamos el engine='xlsxwriter' para que use el default
+    # USAMOS EL MOTOR POR DEFECTO PARA EVITAR EL ERROR DE MODULO
     with pd.ExcelWriter(output) as writer:
         df.to_excel(writer, index=False, sheet_name='Reporte')
     processed_data = output.getvalue()
@@ -200,9 +200,7 @@ if "Insumos" in opcion_almacen:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
-            except Exception as e:
-                # Si falla, mostramos el error pero no rompemos la app
-                pass
+            except: pass
 
             filtro_ins = st.text_input("🔍 Filtrar tabla...", placeholder="Código o Descripción")
             df_show = df_ins[cols_show].copy()
@@ -408,7 +406,7 @@ elif "Herramientas" in opcion_almacen:
             
         st.dataframe(df_view[cols_her_show], use_container_width=True, hide_index=True)
 
-    # --- PESTAÑA 3: HISTORIAL (NUEVA) ---
+    # --- PESTAÑA 3: HISTORIAL (NUEVO) ---
     with tab_hist_h:
         st.subheader("📜 Historial de Préstamos")
         try:
