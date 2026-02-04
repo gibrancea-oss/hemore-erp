@@ -7,22 +7,27 @@ import utils # Tu archivo de conexión
 
 # 1. CONFIGURACIÓN DE PÁGINA
 st.set_page_config(page_title="Almacén Central", page_icon="📦", layout="wide")
+
+# --- 🔒 SEGURIDAD ---
+utils.validar_login() 
+# --------------------
+
 supabase = utils.supabase 
 
-# --- FUNCIÓN AUXILIAR PARA DESCARGAR EXCEL (CORREGIDA) ---
+# --- FUNCIÓN CORREGIDA PARA DESCARGAR EXCEL ---
 def convertir_df_a_excel(df):
     output = io.BytesIO()
-    # CAMBIO: Quitamos "engine='xlsxwriter'" para usar el motor por defecto
+    # CAMBIO: Quitamos el engine='xlsxwriter' para que use el default
     with pd.ExcelWriter(output) as writer:
         df.to_excel(writer, index=False, sheet_name='Reporte')
     processed_data = output.getvalue()
     return processed_data
 
-# --- FUNCIÓN AUXILIAR PARA FILTROS DE FECHA ---
+# --- FUNCIÓN PARA FILTROS DE FECHA ---
 def aplicar_filtro_fechas(df, columna_fecha, filtro_seleccionado):
     if df.empty: return df
     
-    # Asegurar que la columna sea datetime
+    # Asegurar formato fecha
     df[columna_fecha] = pd.to_datetime(df[columna_fecha])
     hoy = pd.Timestamp.now().normalize()
     
@@ -196,7 +201,8 @@ if "Insumos" in opcion_almacen:
                     use_container_width=True
                 )
             except Exception as e:
-                c_down.error("Error creando Excel. Verifica requisitos.")
+                # Si falla, mostramos el error pero no rompemos la app
+                pass
 
             filtro_ins = st.text_input("🔍 Filtrar tabla...", placeholder="Código o Descripción")
             df_show = df_ins[cols_show].copy()
@@ -224,7 +230,7 @@ if "Insumos" in opcion_almacen:
     with tab_hist:
         st.subheader("📜 Historial de Movimientos")
         try:
-            # Traer historial completo (o un limite grande)
+            # Traer historial completo
             historial = pd.DataFrame(supabase.table("Historial_Insumos").select("*").order("id", desc=True).limit(500).execute().data)
             
             if not historial.empty:
@@ -291,7 +297,7 @@ elif "Herramientas" in opcion_almacen:
         df_her = pd.DataFrame()
         lista_personal = []
 
-    # --- 🛡️ BLINDAJE ANTI-KEYERROR ---
+    # --- 🛡️ BLINDAJE ---
     if df_her.empty:
         df_her = pd.DataFrame(columns=["id", "codigo", "Herramienta", "marca", "Responsable", "Estado", "descripcion"])
     
@@ -301,7 +307,6 @@ elif "Herramientas" in opcion_almacen:
     
     df_her["Responsable"] = df_her["Responsable"].fillna("Bodega")
     
-    # Otras columnas seguras
     if "codigo" not in df_her.columns: df_her["codigo"] = ""
     if "marca" not in df_her.columns: df_her["marca"] = ""
     if "Herramienta" not in df_her.columns: df_her["Herramienta"] = "Sin Nombre"
@@ -310,7 +315,7 @@ elif "Herramientas" in opcion_almacen:
     bodega = df_her[df_her['Responsable'] == 'Bodega']
     prestadas = df_her[df_her['Responsable'] != 'Bodega']
 
-    # --- TABS: OPERACION, EXISTENCIAS, HISTORIAL (NUEVO) ---
+    # --- TABS ---
     tab_mov_h, tab_exist_h, tab_hist_h = st.tabs(["📝 Registrar Movimientos", "📋 Existencias", "📜 Historial y Reportes"])
 
     # --- PESTAÑA 1: MOVIMIENTOS ---
@@ -403,14 +408,13 @@ elif "Herramientas" in opcion_almacen:
             
         st.dataframe(df_view[cols_her_show], use_container_width=True, hide_index=True)
 
-    # --- PESTAÑA 3: HISTORIAL (NUEVO) ---
+    # --- PESTAÑA 3: HISTORIAL (NUEVA) ---
     with tab_hist_h:
         st.subheader("📜 Historial de Préstamos")
         try:
             historial_h = pd.DataFrame(supabase.table("Historial_Herramientas").select("*").order("id", desc=True).limit(500).execute().data)
             
             if not historial_h.empty:
-                # Normalizar columnas
                 cols_hh = ["Fecha_Hora", "Herramienta", "Movimiento", "Responsable", "Detalle"]
                 for c in cols_hh:
                      if c not in historial_h.columns: historial_h[c] = "-"
