@@ -3,108 +3,150 @@ import pandas as pd
 import utils # Tu archivo de conexión
 import time
 
-# Configuración de página
-st.set_page_config(page_title="Configuración", page_icon="⚙️", layout="wide")
+st.set_page_config(page_title="Configuración Master", page_icon="⚙️", layout="wide")
 
-def app_personal():
-    st.markdown("### 👥 Gestión de Personal (Datos Maestros)")
-    st.info("Administra aquí a los 50 colaboradores. Desmarca la casilla 'Activo' para dar de baja.")
-
-    # --- 1. CARGAR DATOS ---
+# --- FUNCIÓN INTELIGENTE (Crea las pantallas automáticamente) ---
+def renderizar_catalogo(nombre_modulo, tabla_db, columnas_visibles, columnas_nuevas):
+    st.markdown(f"### 📂 Catálogo de {nombre_modulo}")
+    
+    # 1. Cargar Datos
     try:
-        response = utils.supabase.table("Personal").select("*").order("nombre").execute()
-        df_personal = pd.DataFrame(response.data)
+        response = utils.supabase.table(tabla_db).select("*").order("id").execute()
+        df = pd.DataFrame(response.data)
     except Exception as e:
-        st.error(f"Error de conexión: {e}")
+        st.error(f"Error cargando {nombre_modulo}: {e}")
         return
 
-    if df_personal.empty:
-        df_personal = pd.DataFrame(columns=["id", "nombre", "puesto", "activo"])
+    # Si está vacía, crear estructura
+    if df.empty:
+        df = pd.DataFrame(columns=["id"] + list(columnas_nuevas.keys()))
 
-    # --- PESTAÑAS ---
-    tab_alta, tab_edicion = st.tabs(["➕ Alta Nueva", "✏️ Editar / Bajas"])
+    # Pestañas
+    tab1, tab2 = st.tabs([f"➕ Nuevo {nombre_modulo}", "✏️ Editar Todo"])
 
-    # --- TAB 1: ALTA NUEVA ---
-    with tab_alta:
-        st.write("Registra un nuevo empleado.")
-        with st.form("form_alta_personal", clear_on_submit=True):
+    # --- PESTAÑA 1: ALTA ---
+    with tab1:
+        with st.form(f"form_{tabla_db}", clear_on_submit=True):
             col1, col2 = st.columns(2)
-            nuevo_nombre = col1.text_input("Nombre Completo")
-            nuevo_puesto = col2.selectbox("Puesto", ["Operador", "Supervisor", "Almacén", "Mantenimiento", "Administrativo"])
+            datos_a_guardar = {}
             
-            if st.form_submit_button("Guardar Nuevo Empleado"):
-                if nuevo_nombre:
-                    nombres_existentes = df_personal["nombre"].astype(str).str.lower().values
-                    if nuevo_nombre.lower() in nombres_existentes:
-                        st.error("⚠️ Ese nombre ya existe.")
-                    else:
-                        datos = {"nombre": nuevo_nombre, "puesto": nuevo_puesto, "activo": True}
-                        utils.supabase.table("Personal").insert(datos).execute()
-                        st.success(f"✅ {nuevo_nombre} registrado correctamente.")
-                        st.cache_data.clear()
-                        time.sleep(1)
-                        st.rerun()
+            # Generamos los campos del formulario automáticamente
+            keys = list(columnas_nuevas.keys())
+            # Campo 1 (Ej. Nombre)
+            datos_a_guardar[keys[0]] = col1.text_input(columnas_nuevas[keys[0]])
+            
+            # Campo 2 (Ej. Teléfono o Puesto) - Si existe
+            if len(keys) > 1:
+                if isinstance(columnas_nuevas[keys[1]], list): # Si es lista, usa Selectbox
+                    datos_a_guardar[keys[1]] = col2.selectbox("Opción", columnas_nuevas[keys[1]])
                 else:
-                    st.error("El nombre es obligatorio.")
+                    datos_a_guardar[keys[1]] = col2.text_input(columnas_nuevas[keys[1]])
+            
+            # Campos extra (si hay más de 2, los ponemos abajo)
+            for k in keys[2:]:
+                datos_a_guardar[k] = st.text_input(columnas_nuevas[k])
 
-    # --- TAB 2: EDICIÓN TIPO EXCEL ---
-    with tab_edicion:
-        st.write("Modifica los datos en la tabla. Desmarca 'Activo' para dar de baja.")
-        
-        # CORRECCIÓN: Seleccionamos SOLO las columnas que queremos mostrar
-        # Así evitamos el error y ocultamos la fecha fea automáticamente.
-        columnas_visibles = ["id", "nombre", "puesto", "activo"]
-        
-        # Filtramos el DataFrame si tiene datos, si no, usamos el vacío
-        if not df_personal.empty:
-            df_editor = df_personal[columnas_visibles]
-        else:
-            df_editor = df_personal
+            if st.form_submit_button("Guardar"):
+                if datos_a_guardar[keys[0]]: # Si el primer campo tiene datos
+                    utils.supabase.table(tabla_db).insert(datos_a_guardar).execute()
+                    st.success("✅ Guardado correctamente")
+                    st.cache_data.clear()
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.warning("El primer campo es obligatorio.")
 
-        # Editor de datos interactivo
+    # --- PESTAÑA 2: EDICIÓN ---
+    with tab2:
+        st.info("💡 Edita directamente en la tabla y presiona Guardar.")
+        
+        # Filtramos columnas para no mostrar IDs ni fechas raras
+        cols_finales = [c for c in columnas_visibles if c in df.columns]
+        df_editor = df[cols_finales] if not df.empty else df
+
         edited_df = st.data_editor(
             df_editor,
-            column_config={
-                "id": st.column_config.NumberColumn(disabled=True),
-                "nombre": st.column_config.TextColumn("Nombre", max_chars=50),
-                "puesto": st.column_config.SelectboxColumn(
-                    "Puesto",
-                    options=["Operador", "Supervisor", "Almacén", "Mantenimiento", "Administrativo"],
-                    required=True
-                ),
-                "activo": st.column_config.CheckboxColumn(
-                    "¿Activo?",
-                    help="Si lo desmarcas, el empleado ya no podrá recibir herramientas."
-                )
-            },
-            hide_index=True,
+            num_rows="dynamic", # Permite agregar filas abajo
             use_container_width=True,
-            key="editor_personal"
+            key=f"editor_{tabla_db}"
         )
 
-        # Botón Guardar
-        if st.button("💾 Guardar Cambios"):
-            progress_text = "Actualizando base de datos..."
-            barra = st.progress(0, text=progress_text)
-            
+        if st.button(f"💾 Guardar Cambios en {nombre_modulo}"):
+            bar = st.progress(0, text="Guardando...")
             total = len(edited_df)
+            
+            # Actualización inteligente fila por fila
             for index, row in edited_df.iterrows():
                 try:
-                    utils.supabase.table("Personal").update({
-                        "nombre": row["nombre"],
-                        "puesto": row["puesto"],
-                        "activo": bool(row["activo"])
-                    }).eq("id", row["id"]).execute()
+                    # Preparamos los datos limpios para subir
+                    datos_update = {col: row[col] for col in columnas_visibles if col != 'id'}
+                    
+                    if "id" in row and pd.notna(row["id"]):
+                        # Actualizar existente
+                        utils.supabase.table(tabla_db).update(datos_update).eq("id", row["id"]).execute()
+                    else:
+                        # Es una fila nueva creada en el editor
+                        utils.supabase.table(tabla_db).insert(datos_update).execute()
                 except Exception as e:
-                    st.error(f"Error al actualizar ID {row['id']}: {e}")
-                
-                barra.progress((index + 1) / total)
+                    pass # Ignoramos errores menores de filas vacías
+                bar.progress((index + 1) / total)
             
-            barra.empty()
-            st.success("✅ Datos actualizados correctamente.")
+            bar.empty()
+            st.success("✅ Base de datos actualizada.")
             st.cache_data.clear()
             time.sleep(1)
             st.rerun()
 
-if __name__ == "__main__":
-    app_personal()
+# --- MENÚ LATERAL PRINCIPAL ---
+st.sidebar.title("🔧 Configuración")
+opcion = st.sidebar.radio(
+    "Selecciona Módulo:",
+    ["Personal", "Insumos", "Herramientas", "Clientes", "Proveedores"]
+)
+
+st.title(f"Configuración de {opcion}")
+
+# --- LÓGICA DE NAVEGACIÓN ---
+if opcion == "Personal":
+    # Tabla: Personal | Columnas a ver: id, nombre, puesto, activo
+    # Formulario Nuevo: nombre (Label), puesto (Lista de opciones)
+    renderizar_catalogo(
+        "Personal", 
+        "Personal", 
+        ["id", "nombre", "puesto", "activo"],
+        {"nombre": "Nombre Completo", "puesto": ["Operador", "Supervisor", "Almacén", "Mantenimiento"], "activo": "Activo (True/False)"}
+    )
+
+elif opcion == "Insumos":
+    # Asumimos que tu tabla Insumos tiene columnas: 'Nombre', 'Cantidad', 'Unidad'
+    # Ajusta los nombres de columnas según tu DB real
+    renderizar_catalogo(
+        "Insumos", 
+        "Insumos", 
+        ["id", "Nombre", "Cantidad", "Unidad"], 
+        {"Nombre": "Nombre del Insumo", "Cantidad": "Stock Inicial", "Unidad": "Unidad (Pzas, Kg, Lts)"}
+    )
+
+elif opcion == "Herramientas":
+    renderizar_catalogo(
+        "Herramientas", 
+        "Herramientas", 
+        ["id", "Herramienta", "Estado", "Ubicacion"], 
+        {"Herramienta": "Nombre Herramienta", "Estado": ["BUENO", "REGULAR", "MALO"], "Ubicacion": "Ubicación en Almacén"}
+    )
+
+elif opcion == "Clientes":
+    renderizar_catalogo(
+        "Clientes", 
+        "Clientes", 
+        ["id", "nombre", "telefono", "direccion", "email"], 
+        {"nombre": "Nombre Cliente / Empresa", "telefono": "Teléfono", "direccion": "Dirección", "email": "Correo"}
+    )
+
+elif opcion == "Proveedores":
+    renderizar_catalogo(
+        "Proveedores", 
+        "Proveedores", 
+        ["id", "empresa", "contacto", "telefono", "rfc"], 
+        {"empresa": "Nombre Empresa", "contacto": "Nombre Contacto", "telefono": "Teléfono", "rfc": "RFC"}
+    )
