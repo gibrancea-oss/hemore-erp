@@ -3,8 +3,9 @@ import pandas as pd
 from datetime import datetime, timedelta, date
 import time
 import io
+import os
 import utils 
-from fpdf import FPDF # Librería para crear el PDF
+from fpdf import FPDF
 
 # 1. CONFIGURACIÓN DE PÁGINA
 st.set_page_config(page_title="Almacén Central", page_icon="📦", layout="wide")
@@ -15,15 +16,23 @@ utils.validar_login()
 
 supabase = utils.supabase 
 
-# --- FUNCIÓN GENERADOR DE PDF (TIPO RECIBO HEMORE) ---
+# --- CLASE PDF PERSONALIZADA ---
 class PDF(FPDF):
     def header(self):
-        # Logo o Título Grande
-        self.set_font('Arial', 'B', 20)
-        self.cell(100, 10, 'HEMORE', 0, 0, 'L')
-        self.set_font('Arial', '', 14)
+        # 1. LOGO (Busca logo.png en la carpeta actual)
+        if os.path.exists("logo.png"):
+            self.image("logo.png", 10, 8, 33) # x, y, w
+            self.ln(25)
+        else:
+            # Si no hay logo, pone texto
+            self.set_font('Arial', 'B', 20)
+            self.cell(40, 10, 'HEMORE', 0, 1, 'L')
+            self.ln(5)
+
+        # Título a la derecha
+        self.set_xy(100, 10)
+        self.set_font('Arial', '', 16)
         self.cell(0, 10, 'Recibo de Entrega', 0, 1, 'R')
-        self.ln(5)
 
     def footer(self):
         self.set_y(-40)
@@ -32,7 +41,7 @@ class PDF(FPDF):
         self.cell(90, 0, '_______________________________', 0, 0, 'C')
         self.cell(10, 0, '', 0, 0)
         self.cell(90, 0, '_______________________________', 0, 1, 'C')
-        self.ln(3)
+        self.ln(4)
         self.cell(90, 5, 'Entrega Nombre y Firma', 0, 0, 'C')
         self.cell(10, 5, '', 0, 0)
         self.cell(90, 5, 'Recibe Nombre y Firma', 0, 1, 'C')
@@ -47,10 +56,8 @@ def generar_pdf_recibo(datos_cabecera, df_productos, folio):
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=45)
     
-    # --- DATOS GENERALES (CABECERA) ---
+    # --- DATOS GENERALES (Folio y Fecha) ---
     pdf.set_font('Arial', 'B', 10)
-    
-    # Folio y Fecha (Derecha)
     pdf.set_xy(140, 25)
     pdf.cell(25, 6, "Folio:", 0, 0, 'R')
     pdf.set_font('Arial', '', 10)
@@ -62,52 +69,60 @@ def generar_pdf_recibo(datos_cabecera, df_productos, folio):
     pdf.set_font('Arial', '', 10)
     pdf.cell(30, 6, datos_cabecera['fecha'], 0, 1, 'L')
 
-    pdf.ln(10)
+    pdf.set_y(45) # Mover cursor abajo del logo
 
     # --- RECUADROS DE PROVEEDOR Y CLIENTE ---
-    # Dibujamos dos rectangulos simulando la imagen
     y_start = pdf.get_y()
     
-    # PROVEEDOR (HEMORE)
-    pdf.set_fill_color(220, 220, 220) # Gris claro
+    # Títulos de las cajas
+    pdf.set_fill_color(230, 230, 230) 
     pdf.set_font('Arial', 'B', 9)
-    pdf.cell(95, 6, " Proveedor", 1, 0, 'C', True)
-    pdf.cell(95, 6, " Cliente", 1, 1, 'C', True)
+    pdf.cell(95, 6, " Proveedor", 1, 0, 'L', True)
+    pdf.cell(95, 6, " Cliente", 1, 1, 'L', True)
     
-    # Datos Proveedor (Izquierda)
+    # Contenido de las cajas (Bordes vacíos primero)
     pdf.set_font('Arial', '', 8)
-    pdf.cell(95, 20, "", 1, 0) # Caja vacía para borde
+    pdf.cell(95, 25, "", 1, 0) 
+    pdf.cell(95, 25, "", 1, 0) 
     
-    # Escribimos dentro de la caja izquierda
+    # Escribir texto Proveedor (Izquierda)
     pdf.set_xy(12, y_start + 8) 
-    pdf.multi_cell(90, 4, "HEMORE INDUSTRIAS\nCalle Falsa 123\nPuebla, Pue.\nRFC: HEM000000XXX")
+    info_prov = (
+        f"{datos_cabecera['prov_nombre']}\n"
+        f"{datos_cabecera['prov_dir']}\n"
+        f"Col. {datos_cabecera['prov_col']}, CP: {datos_cabecera['prov_cp']}\n"
+        f"RFC: {datos_cabecera['prov_rfc']}"
+    )
+    pdf.multi_cell(90, 4, info_prov)
     
-    # Datos Cliente (Derecha)
-    pdf.set_xy(105, y_start + 6)
-    pdf.cell(95, 20, "", 1, 0) # Caja vacía derecha
-    
+    # Escribir texto Cliente (Derecha)
     pdf.set_xy(107, y_start + 8)
-    pdf.multi_cell(90, 4, f"{datos_cabecera['cliente']}\nRFC: {datos_cabecera.get('rfc_cliente', '')}")
+    info_cli = (
+        f"{datos_cabecera['cli_nombre']}\n"
+        f"{datos_cabecera['cli_dir']}\n"
+        f"Col. {datos_cabecera['cli_col']}, CP: {datos_cabecera['cli_cp']}\n"
+        f"RFC: {datos_cabecera['cli_rfc']}"
+    )
+    pdf.multi_cell(90, 4, info_cli)
     
-    pdf.set_xy(10, y_start + 28) # Bajar cursor
+    pdf.set_xy(10, y_start + 35) # Espacio después de las cajas
     
     # --- TABLA DE PRODUCTOS ---
     # Encabezados
     pdf.set_font('Arial', 'B', 9)
     pdf.set_fill_color(200, 200, 200)
     pdf.cell(25, 7, "O.C.", 1, 0, 'C', True)
-    pdf.cell(30, 7, "Código", 1, 0, 'C', True)
-    pdf.cell(95, 7, "Descripción", 1, 0, 'C', True)
+    pdf.cell(30, 7, "Codigo", 1, 0, 'C', True)
+    pdf.cell(95, 7, "Descripcion", 1, 0, 'C', True)
     pdf.cell(20, 7, "Color", 1, 0, 'C', True)
     pdf.cell(20, 7, "Cantidad", 1, 1, 'C', True)
     
     # Filas
     pdf.set_font('Arial', '', 8)
     for index, row in df_productos.iterrows():
-        # Altura dinámica por si la descripción es larga
         col_oc = str(datos_cabecera['oc'])
         col_cod = str(row['Código'])
-        col_desc = str(row['Descripción'])
+        col_desc = str(row['Descripción'])[:55] # Cortar si es muy largo
         col_color = str(row['Color'])
         col_cant = str(row['Cantidad'])
         
@@ -117,21 +132,25 @@ def generar_pdf_recibo(datos_cabecera, df_productos, folio):
         pdf.cell(20, 7, col_color, 1, 0, 'C')
         pdf.cell(20, 7, col_cant, 1, 1, 'C')
 
-    # Observaciones
-    pdf.ln(5)
+    # --- OBSERVACIONES ---
+    pdf.ln(8)
     pdf.set_font('Arial', 'B', 9)
     pdf.write(5, "Observaciones: ")
     pdf.set_font('Arial', '', 9)
-    pdf.write(5, "_"*110)
+    # Si hay obs las ponemos, si no linea vacia
+    obs_text = datos_cabecera.get('observaciones', '')
+    if obs_text:
+        pdf.write(5, obs_text)
+    else:
+        pdf.write(5, "_"*110)
 
-    # Convertir a bytes
     return pdf.output(dest='S').encode('latin-1')
 
-# --- FUNCIONES AUXILIARES EXISTENTES ---
+# --- FUNCIONES AUXILIARES ---
 def convertir_df_a_excel(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output) as writer:
-        df.to_excel(writer, index=False, sheet_name='Reporte')
+        df.to_excel(writer, index=False, sheet_name='Recibo')
     processed_data = output.getvalue()
     return processed_data
 
@@ -157,7 +176,7 @@ opcion_almacen = st.sidebar.radio(
 st.title(f"Control de {opcion_almacen.split(' (')[0]}")
 
 # ==================================================
-# 🧱 OPCIÓN 1: GESTIÓN DE INSUMOS (INTACTO)
+# 🧱 OPCIÓN 1: GESTIÓN DE INSUMOS
 # ==================================================
 if "Insumos" in opcion_almacen:
     try:
@@ -171,7 +190,6 @@ if "Insumos" in opcion_almacen:
 
     tab_op, tab_exist, tab_hist = st.tabs(["📝 Registrar Movimientos", "📊 Existencias", "📜 Historial y Reportes"])
 
-    # PESTAÑA 1
     with tab_op:
         if df_ins.empty: st.warning("No hay insumos.")
         else:
@@ -208,9 +226,12 @@ if "Insumos" in opcion_almacen:
                         st.rerun()
             with c_info: st.metric("Stock", item_actual['Cantidad'])
 
-    # PESTAÑA 2 y 3 (Resumido para brevedad, funcional igual)
     with tab_exist:
         if not df_ins.empty:
+            try:
+                excel_data = convertir_df_a_excel(df_ins[["codigo", "Descripcion", "Cantidad", "Unidad"]])
+                st.download_button("📥 Descargar Existencias", excel_data, "Existencias.xlsx")
+            except: pass
             st.dataframe(df_ins[["codigo", "Descripcion", "Cantidad", "Unidad"]], use_container_width=True)
     with tab_hist:
         try:
@@ -219,7 +240,7 @@ if "Insumos" in opcion_almacen:
         except: pass
 
 # ==================================================
-# 🔧 OPCIÓN 2: HERRAMIENTAS (INTACTO)
+# 🔧 OPCIÓN 2: HERRAMIENTAS
 # ==================================================
 elif "Herramientas" in opcion_almacen:
     try:
@@ -232,7 +253,7 @@ elif "Herramientas" in opcion_almacen:
     if "Responsable" not in df_her.columns: df_her["Responsable"] = "Bodega"
     df_her["Responsable"].fillna("Bodega", inplace=True)
 
-    tab1, tab2 = st.tabs(["Movimientos", "Inventario"])
+    tab1, tab2, tab3 = st.tabs(["Movimientos", "Inventario", "Historial"])
     with tab1:
         c1, c2 = st.columns(2)
         with c1:
@@ -244,8 +265,9 @@ elif "Herramientas" in opcion_almacen:
                 if st.button("Prestar"):
                     id_h = bodega[bodega["Herramienta"]==sel].iloc[0]["id"]
                     supabase.table("Herramientas").update({"Responsable": resp}).eq("id", int(id_h)).execute()
-                    st.success("Prestado")
-                    time.sleep(1); st.rerun()
+                    try: supabase.table("Historial_Herramientas").insert({"Fecha_Hora": datetime.now().strftime('%Y-%m-%d %H:%M'), "Herramienta": sel, "Movimiento": "Préstamo", "Responsable": resp}).execute()
+                    except: pass
+                    st.success("Prestado"); time.sleep(1); st.rerun()
         with c2:
             st.warning("Devolver")
             prestadas = df_her[df_her["Responsable"]!="Bodega"]
@@ -254,119 +276,171 @@ elif "Herramientas" in opcion_almacen:
                 if st.button("Devolver"):
                     id_h = prestadas[prestadas["Herramienta"]==sel_d].iloc[0]["id"]
                     supabase.table("Herramientas").update({"Responsable": "Bodega"}).eq("id", int(id_h)).execute()
-                    st.success("Devuelto")
-                    time.sleep(1); st.rerun()
+                    try: supabase.table("Historial_Herramientas").insert({"Fecha_Hora": datetime.now().strftime('%Y-%m-%d %H:%M'), "Herramienta": sel_d, "Movimiento": "Devolución", "Responsable": "Bodega"}).execute()
+                    except: pass
+                    st.success("Devuelto"); time.sleep(1); st.rerun()
     with tab2:
         st.dataframe(df_her, use_container_width=True)
+    with tab3:
+        try:
+            h_her = pd.DataFrame(supabase.table("Historial_Herramientas").select("*").order("id", desc=True).limit(100).execute().data)
+            st.dataframe(h_her, use_container_width=True)
+        except: pass
 
 # ==================================================
-# 📑 OPCIÓN 3: RECIBOS DE ENTREGA OC (NUEVO Y MEJORADO)
+# 📑 OPCIÓN 3: RECIBOS DE ENTREGA OC (COMPLETO)
 # ==================================================
 elif "Recibos" in opcion_almacen:
     st.markdown("### 📑 Generador de Recibos de Entrega (OC)")
     
-    # 1. Cargar Datos Maestros
+    # 1. Cargar Datos Maestros (Proveedores y Clientes COMPLETOS)
     try:
-        df_clientes = pd.DataFrame(supabase.table("Clientes").select("nombre, rfc").execute().data)
-        lista_clientes = df_clientes['nombre'].tolist() if not df_clientes.empty else []
+        # Clientes
+        res_cli = supabase.table("Clientes").select("*").execute()
+        df_clientes = pd.DataFrame(res_cli.data)
+        lista_nombres_cli = df_clientes['nombre'].tolist() if not df_clientes.empty else []
         
+        # Proveedores
+        res_prov = supabase.table("Proveedores").select("*").execute()
+        df_proveedores = pd.DataFrame(res_prov.data)
+        # Ajuste por si la columna es 'empresa' o 'nombre'
+        col_prov_nombre = 'empresa' if 'empresa' in df_proveedores.columns else 'nombre'
+        lista_nombres_prov = df_proveedores[col_prov_nombre].tolist() if not df_proveedores.empty else []
+        
+        # Personal
         df_personal = pd.DataFrame(supabase.table("Personal").select("nombre").eq("activo", True).execute().data)
         lista_personal = df_personal['nombre'].tolist() if not df_personal.empty else []
     except: 
-        lista_clientes = []
+        lista_nombres_cli = []
+        lista_nombres_prov = []
         lista_personal = []
+        df_clientes = pd.DataFrame()
+        df_proveedores = pd.DataFrame()
 
-    # 2. INTERFAZ DE CAPTURA TIPO RECIBO
-    with st.container(border=True):
-        st.subheader("📝 Nuevo Recibo")
-        
-        # --- CABECERA DEL RECIBO ---
-        c1, c2, c3 = st.columns([1, 2, 1])
-        oc_input = c1.text_input("Orden de Compra (O.C.)")
-        cliente_input = c2.selectbox("Cliente", lista_clientes)
-        fecha_input = c3.date_input("Fecha", value=datetime.now().date())
-        
-        st.divider()
-        st.markdown("**📦 Productos de la Orden:**")
-        
-        # --- TABLA EDITABLE (GRID) ---
-        # Inicializamos un DataFrame vacío para que el usuario lo llene
-        if "data_recibo" not in st.session_state:
-            st.session_state["data_recibo"] = pd.DataFrame(
-                [{"Código": "", "Descripción": "", "Color": "", "Cantidad": 0}], # Fila ejemplo
-                columns=["Código", "Descripción", "Color", "Cantidad"]
+    # --- PESTAÑAS ---
+    tab_nuevo, tab_historial = st.tabs(["➕ Nuevo Registro", "📜 Historial de Recibos"])
+
+    # 1. NUEVO REGISTRO
+    with tab_nuevo:
+        with st.container(border=True):
+            st.subheader("Datos Generales")
+            
+            c1, c2, c3 = st.columns([1, 1, 1])
+            oc_input = c1.text_input("Orden de Compra (O.C.)", placeholder="Ej. 2183")
+            fecha_input = c2.date_input("Fecha", value=datetime.now().date())
+            
+            # Selectores Maestros
+            prov_input = c3.selectbox("Proveedor:", lista_nombres_prov, index=None, placeholder="Selecciona...")
+            cliente_input = st.selectbox("Cliente:", lista_nombres_cli, index=None, placeholder="Selecciona...")
+            
+            # Info visual del cliente seleccionado
+            if cliente_input and not df_clientes.empty:
+                datos_cli = df_clientes[df_clientes['nombre'] == cliente_input].iloc[0]
+                st.info(f"📍 **Destino:** {datos_cli.get('direccion','')} | RFC: {datos_cli.get('rfc','')}")
+
+            st.divider()
+            st.markdown("**📦 Productos de la Orden:**")
+            
+            # Tabla Editable
+            if "data_recibo" not in st.session_state:
+                st.session_state["data_recibo"] = pd.DataFrame(
+                    [{"Código": "", "Descripción": "", "Color": "", "Cantidad": 0}],
+                    columns=["Código", "Descripción", "Color", "Cantidad"]
+                )
+
+            edited_df = st.data_editor(
+                st.session_state["data_recibo"],
+                num_rows="dynamic",
+                use_container_width=True,
+                column_config={"Cantidad": st.column_config.NumberColumn(min_value=0, step=1, format="%d")}
             )
-
-        # Editor de datos
-        edited_df = st.data_editor(
-            st.session_state["data_recibo"],
-            num_rows="dynamic", # Permite agregar/borrar filas
-            use_container_width=True,
-            column_config={
-                "Cantidad": st.column_config.NumberColumn(min_value=0, step=1, format="%d")
-            }
-        )
-        
-        col_firmas, col_accion = st.columns([2, 1])
-        usuario_input = col_firmas.selectbox("Registrado por (Firma interna):", lista_personal)
-        
-        # --- BOTÓN DE GUARDAR E IMPRIMIR ---
-        if col_accion.button("💾 Guardar y Generar PDF", type="primary", use_container_width=True):
-            if oc_input and cliente_input and not edited_df.empty:
-                # 1. Validar que haya datos reales
-                items_validos = edited_df[edited_df["Código"] != ""]
-                
-                if not items_validos.empty:
-                    # 2. Guardar en Base de Datos (Fila por fila)
-                    for i, row in items_validos.iterrows():
+            
+            observaciones = st.text_area("Observaciones:")
+            
+            col_firmas, col_accion = st.columns([1, 1])
+            usuario_input = col_firmas.selectbox("Registrado por:", lista_personal)
+            
+            if col_accion.button("💾 Guardar y Generar PDF", type="primary", use_container_width=True):
+                if oc_input and cliente_input and prov_input and not edited_df.empty:
+                    items_validos = edited_df[edited_df["Código"] != ""]
+                    
+                    if not items_validos.empty:
+                        # 1. Guardar en DB
+                        for i, row in items_validos.iterrows():
+                            try:
+                                supabase.table("Recibos_OC").insert({
+                                    "fecha": fecha_input.isoformat(),
+                                    "oc": oc_input,
+                                    "cliente": cliente_input,
+                                    "proveedor": prov_input,
+                                    "codigo": row["Código"],
+                                    "descripcion": row["Descripción"],
+                                    "color": row["Color"],
+                                    "cantidad": row["Cantidad"],
+                                    "usuario": usuario_input,
+                                    "observaciones": observaciones
+                                }).execute()
+                            except Exception as e:
+                                st.error(f"Error DB: {e}")
+                        
+                        # 2. Obtener datos completos para PDF
+                        # Cliente
+                        cli_data = df_clientes[df_clientes['nombre'] == cliente_input].iloc[0]
+                        # Proveedor
+                        col_p = 'empresa' if 'empresa' in df_proveedores.columns else 'nombre'
+                        prov_data = df_proveedores[df_proveedores[col_p] == prov_input].iloc[0]
+                        
+                        # Folio (usamos ultimo ID insertado aprox)
                         try:
-                            supabase.table("Recibos_OC").insert({
-                                "fecha": fecha_input.isoformat(),
-                                "oc": oc_input,
-                                "cliente": cliente_input,
-                                "codigo": row["Código"],
-                                "descripcion": row["Descripción"],
-                                "color": row["Color"],
-                                "cantidad": row["Cantidad"],
-                                "usuario": usuario_input
-                            }).execute()
-                        except Exception as e:
-                            st.error(f"Error guardando item {row['Código']}: {e}")
-                    
-                    # 3. Obtener el 'Folio' (usamos el ID del último insertado aprox, o un contador)
-                    # Para el PDF usaremos un placeholder o consultaremos el último ID
-                    try:
-                        last_id = supabase.table("Recibos_OC").select("id").order("id", desc=True).limit(1).execute().data[0]['id']
-                    except: last_id = 1
-                    
-                    # 4. Generar PDF en memoria
-                    datos_pdf = {
-                        "oc": oc_input,
-                        "cliente": cliente_input,
-                        "fecha": fecha_input.strftime("%d/%m/%Y"),
-                        "rfc_cliente": "XAXX010101000" # Placeholder, idealmente vendría de la BD Clientes
-                    }
-                    
-                    pdf_bytes = generar_pdf_recibo(datos_pdf, items_validos, last_id)
-                    
-                    # 5. Mostrar descarga
-                    st.success("✅ Recibo Guardado Exitosamente")
-                    st.download_button(
-                        label="🖨️ Descargar PDF del Recibo",
-                        data=pdf_bytes,
-                        file_name=f"Recibo_HEMORE_{oc_input}.pdf",
-                        mime="application/pdf"
-                    )
-                    
-                else:
-                    st.warning("La tabla está vacía o los códigos están en blanco.")
-            else:
-                st.warning("Faltan datos de cabecera (OC o Cliente).")
+                            last_id = supabase.table("Recibos_OC").select("id").order("id", desc=True).limit(1).execute().data[0]['id']
+                        except: last_id = 1
+                        
+                        # Preparar Dict para PDF
+                        datos_pdf = {
+                            "oc": oc_input,
+                            "fecha": fecha_input.strftime("%d/%m/%Y"),
+                            "observaciones": observaciones,
+                            # Datos Prov
+                            "prov_nombre": prov_input,
+                            "prov_dir": prov_data.get('domicilio', ''),
+                            "prov_col": prov_data.get('colonia', ''),
+                            "prov_cp": prov_data.get('codigo_postal', ''),
+                            "prov_rfc": prov_data.get('rfc', ''),
+                            # Datos Cli
+                            "cli_nombre": cliente_input,
+                            "cli_dir": cli_data.get('direccion', ''),
+                            "cli_col": cli_data.get('colonia', ''),
+                            "cli_cp": cli_data.get('codigo_postal', ''),
+                            "cli_rfc": cli_data.get('rfc', '')
+                        }
+                        
+                        # 3. Generar PDF
+                        pdf_bytes = generar_pdf_recibo(datos_pdf, items_validos, last_id)
+                        
+                        st.success("✅ Guardado.")
+                        st.download_button("🖨️ Descargar PDF", pdf_bytes, f"Recibo_{oc_input}.pdf", "application/pdf")
+                        
+                    else: st.warning("Tabla vacía.")
+                else: st.warning("Faltan datos obligatorios (OC, Cliente, Proveedor).")
 
-    # --- HISTORIAL RÁPIDO ---
-    with st.expander("📜 Ver Últimos Recibos Generados"):
+    # 2. HISTORIAL
+    with tab_historial:
+        st.subheader("📜 Historial de Recibos Generados")
         try:
-            h_recibos = pd.DataFrame(supabase.table("Recibos_OC").select("*").order("id", desc=True).limit(20).execute().data)
-            if not h_recibos.empty:
-                st.dataframe(h_recibos, use_container_width=True)
+            # Traer los ultimos
+            h_rec = pd.DataFrame(supabase.table("Recibos_OC").select("*").order("id", desc=True).limit(100).execute().data)
+            if not h_rec.empty:
+                # Filtros basicos
+                filtro_oc = st.text_input("🔍 Buscar por OC o Cliente:")
+                if filtro_oc:
+                    mask = h_rec.astype(str).apply(lambda x: x.str.contains(filtro_oc, case=False)).any(axis=1)
+                    h_rec = h_rec[mask]
+                
+                st.dataframe(
+                    h_rec[["id", "fecha", "oc", "cliente", "proveedor", "codigo", "descripcion", "cantidad"]],
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("No hay recibos guardados.")
         except: pass
