@@ -6,6 +6,11 @@ import utils # Tu archivo de conexión
 
 # 1. CONFIGURACIÓN DE PÁGINA
 st.set_page_config(page_title="Almacén Central", page_icon="📦", layout="wide")
+
+# --- 🔒 SEGURIDAD ACTIVADA ---
+utils.validar_login()
+# -----------------------------
+
 supabase = utils.supabase 
 
 # ==========================================
@@ -179,19 +184,14 @@ elif "Herramientas" in opcion_almacen:
         df_her = pd.DataFrame()
         lista_personal = []
 
-    # --- 🛡️ BLINDAJE EXTREMO ANTI-KEYERROR ---
+    # --- 🛡️ BLINDAJE EXTREMO ---
     if df_her.empty:
         df_her = pd.DataFrame(columns=["id", "codigo", "Herramienta", "marca", "Responsable", "Estado", "descripcion"])
     
-    # Normalización de nombre de columna (por si la DB la tiene en minúscula)
-    if "responsable" in df_her.columns and "Responsable" not in df_her.columns:
-        df_her["Responsable"] = df_her["responsable"]
-        
-    # Si aún así no existe, la creamos virtualmente
     if "Responsable" not in df_her.columns: 
-        df_her["Responsable"] = "Bodega"
+        if "responsable" in df_her.columns: df_her["Responsable"] = df_her["responsable"]
+        else: df_her["Responsable"] = "Bodega"
     
-    # Rellenar nulos
     df_her["Responsable"] = df_her["Responsable"].fillna("Bodega")
     
     # Otras columnas seguras
@@ -200,7 +200,7 @@ elif "Herramientas" in opcion_almacen:
     if "Herramienta" not in df_her.columns: df_her["Herramienta"] = "Sin Nombre"
     if "id" not in df_her.columns: df_her["id"] = 0
 
-    # Ahora sí podemos filtrar sin miedo
+    # Filtros
     bodega = df_her[df_her['Responsable'] == 'Bodega']
     prestadas = df_her[df_her['Responsable'] != 'Bodega']
 
