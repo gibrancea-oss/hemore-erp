@@ -6,7 +6,7 @@ import datetime
 
 st.set_page_config(page_title="Configuración Master", page_icon="⚙️", layout="wide")
 
-# --- FUNCIÓN INTELIGENTE (Para Clientes y Proveedores) ---
+# --- FUNCIÓN INTELIGENTE (Solo queda para Proveedores) ---
 def renderizar_catalogo_generico(nombre_modulo, tabla_db, columnas_visibles, config_campos):
     st.markdown(f"### 📂 Catálogo de {nombre_modulo}")
     
@@ -99,7 +99,7 @@ opcion = st.sidebar.radio(
 )
 
 # ==========================================
-# 1. PERSONAL
+# 1. PERSONAL (INTACTO)
 # ==========================================
 if opcion == "Personal":
     st.markdown("### 👥 Gestión de Recursos Humanos")
@@ -194,7 +194,7 @@ if opcion == "Personal":
             st.rerun()
 
 # ==========================================
-# 2. INSUMOS
+# 2. INSUMOS (INTACTO)
 # ==========================================
 elif opcion == "Insumos":
     lista_unidades = ["Pzas", "Kg", "Lts", "Mts", "Cajas", "Paquetes", "Rollos", "Juegos", "Botes", "Galones"]
@@ -319,24 +319,16 @@ elif opcion == "Insumos":
                 st.rerun()
 
 # ==========================================
-# 3. HERRAMIENTAS (NUEVO Y MEJORADO)
+# 3. HERRAMIENTAS (INTACTO)
 # ==========================================
 elif opcion == "Herramientas":
     st.markdown("### 🛠️ Gestión de Herramientas")
-    
-    # 1. CARGAR DATOS
     try:
         response = utils.supabase.table("Herramientas").select("*").order("id").execute()
         df = pd.DataFrame(response.data)
-        
-        # Inicializar columnas nuevas si están vacías
         if not df.empty:
             if "codigo" not in df.columns: df["codigo"] = df["id"].astype(str)
             else: df["codigo"] = df["codigo"].fillna(df["id"].astype(str))
-            
-            # Mapeamos 'Herramienta' (DB) a 'nombre' (Visual) si es necesario
-            # En este caso usaremos 'Herramienta' como el campo de nombre para guardar compatibilidad
-            
     except Exception as e:
         st.error(f"Error cargando herramientas: {e}")
         df = pd.DataFrame()
@@ -346,15 +338,12 @@ elif opcion == "Herramientas":
 
     t1, t2 = st.tabs(["➕ Alta Herramienta", "📋 Lista Completa"])
 
-    # --- ALTA ---
     with t1:
         with st.form("alta_herramienta", clear_on_submit=True):
             st.write("Ficha de Herramienta")
-            
             c1, c2 = st.columns([1, 3])
             nuevo_sku = c1.text_input("Código SKU", placeholder="Ej. TAL-MAK-01")
             nuevo_nombre = c2.text_input("Nombre de la Herramienta")
-            
             c3, c4, c5 = st.columns(3)
             nueva_marca = c3.text_input("Marca")
             nuevo_estado = c4.selectbox("Estado", ["BUEN ESTADO", "MAL ESTADO", "EN REPARACIÓN", "BAJA"])
@@ -362,44 +351,31 @@ elif opcion == "Herramientas":
 
             if st.form_submit_button("Guardar Herramienta"):
                 if nuevo_nombre and nuevo_sku:
-                    # Validación Duplicados
                     duplicado = False
                     if not df.empty:
                          if nuevo_sku.strip() in df["codigo"].astype(str).str.strip().values:
                              st.error(f"⛔ El código {nuevo_sku} ya existe.")
                              duplicado = True
-                    
                     if not duplicado:
                         try:
-                            datos = {
-                                "codigo": nuevo_sku,
-                                "Herramienta": nuevo_nombre, # Mapeo a columna existente
-                                "marca": nueva_marca,
-                                "Estado": nuevo_estado,
-                                "descripcion": nueva_desc
-                            }
+                            datos = {"codigo": nuevo_sku, "Herramienta": nuevo_nombre, "marca": nueva_marca,
+                                     "Estado": nuevo_estado, "descripcion": nueva_desc}
                             utils.supabase.table("Herramientas").insert(datos).execute()
                             st.success(f"✅ {nuevo_nombre} agregado.")
                             st.cache_data.clear()
                             time.sleep(1)
                             st.rerun()
-                        except Exception as e:
-                            st.error(f"Error al guardar: {e}")
-                else:
-                    st.warning("Código y Nombre son obligatorios.")
+                        except Exception as e: st.error(f"Error al guardar: {e}")
+                else: st.warning("Código y Nombre obligatorios.")
 
-    # --- LISTA Y BÚSQUEDA ---
     with t2:
         col_b, _ = st.columns([1, 1])
         busqueda = col_b.text_input("🔍 Buscar Herramienta", placeholder="SKU, Nombre, Marca...")
-        
         df_show = df.copy()
         if busqueda:
-            mask = (
-                df_show["codigo"].astype(str).str.contains(busqueda, case=False, na=False) |
-                df_show["Herramienta"].astype(str).str.contains(busqueda, case=False, na=False) |
-                df_show["marca"].astype(str).str.contains(busqueda, case=False, na=False)
-            )
+            mask = (df_show["codigo"].astype(str).str.contains(busqueda, case=False, na=False) |
+                    df_show["Herramienta"].astype(str).str.contains(busqueda, case=False, na=False) |
+                    df_show["marca"].astype(str).str.contains(busqueda, case=False, na=False))
             df_show = df_show[mask]
 
         column_config = {
@@ -410,59 +386,152 @@ elif opcion == "Herramientas":
             "marca": st.column_config.TextColumn("Marca", width="small"),
             "Estado": st.column_config.SelectboxColumn("Estado", options=["BUEN ESTADO", "MAL ESTADO", "EN REPARACIÓN", "BAJA"], width="small")
         }
-        
         cols_ver = ["id", "codigo", "Herramienta", "descripcion", "marca", "Estado"]
         for c in cols_ver:
              if c not in df_show.columns: df_show[c] = None
+
+        edited_df = st.data_editor(df_show[cols_ver], column_config=column_config, num_rows="dynamic", use_container_width=True, height=500, key="editor_herramientas")
+
+        if st.button("💾 Actualizar Herramientas"):
+            skus = edited_df["codigo"].astype(str).tolist()
+            if len(skus) != len(set(skus)): st.error("⛔ Error: Códigos SKU duplicados.")
+            else:
+                bar = st.progress(0, text="Guardando...")
+                total = len(edited_df)
+                for index, row in edited_df.iterrows():
+                    try:
+                        datos = {"codigo": row["codigo"], "Herramienta": row["Herramienta"], "descripcion": row["descripcion"],
+                                 "marca": row["marca"], "Estado": row["Estado"]}
+                        if pd.notna(row["id"]): utils.supabase.table("Herramientas").update(datos).eq("id", row["id"]).execute()
+                        else: utils.supabase.table("Herramientas").insert(datos).execute()
+                    except: pass
+                    bar.progress((index+1)/total)
+                bar.empty()
+                st.success("✅ Lista actualizada.")
+                st.cache_data.clear()
+                time.sleep(1)
+                st.rerun()
+
+# ==========================================
+# 4. CLIENTES (NUEVO Y MEJORADO)
+# ==========================================
+elif opcion == "Clientes":
+    st.markdown("### 🏢 Gestión de Clientes")
+    
+    # Cargar datos
+    try:
+        response = utils.supabase.table("Clientes").select("*").order("id").execute()
+        df = pd.DataFrame(response.data)
+    except Exception as e:
+        st.error(f"Error cargando clientes: {e}")
+        df = pd.DataFrame()
+
+    if df.empty:
+        df = pd.DataFrame(columns=["id", "nombre", "direccion", "colonia", "codigo_postal", "rfc", "estado"])
+
+    t1, t2 = st.tabs(["➕ Alta Cliente", "📋 Lista de Clientes"])
+
+    with t1:
+        with st.form("alta_cliente", clear_on_submit=True):
+            st.write("Datos de la Empresa / Cliente")
+            
+            c1, c2 = st.columns(2)
+            nuevo_nombre = c1.text_input("Nombre de la Empresa")
+            nuevo_rfc = c2.text_input("RFC")
+            
+            c3, c4 = st.columns(2)
+            nueva_direccion = c3.text_input("Domicilio (Calle y Número)")
+            nueva_colonia = c4.text_input("Colonia")
+            
+            c5, c6 = st.columns(2)
+            nuevo_cp = c5.text_input("Código Postal")
+            nuevo_estado = c6.text_input("Estado")
+
+            if st.form_submit_button("Guardar Cliente"):
+                if nuevo_nombre:
+                    try:
+                        datos = {
+                            "nombre": nuevo_nombre, # Mapeamos 'nombre' a Empresa
+                            "direccion": nueva_direccion,
+                            "rfc": nuevo_rfc,
+                            "colonia": nueva_colonia,
+                            "codigo_postal": nuevo_cp,
+                            "estado": nuevo_estado
+                        }
+                        utils.supabase.table("Clientes").insert(datos).execute()
+                        st.success(f"✅ {nuevo_nombre} registrado.")
+                        st.cache_data.clear()
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al guardar: {e}")
+                else:
+                    st.warning("El Nombre de la Empresa es obligatorio.")
+
+    with t2:
+        # Buscador Inteligente
+        col_bus, _ = st.columns([1,1])
+        busqueda = col_bus.text_input("🔍 Buscar Cliente", placeholder="Empresa o RFC...")
+        
+        df_show = df.copy()
+        if busqueda:
+             mask = (
+                 df_show["nombre"].astype(str).str.contains(busqueda, case=False, na=False) |
+                 df_show["rfc"].astype(str).str.contains(busqueda, case=False, na=False)
+             )
+             df_show = df_show[mask]
+
+        column_config = {
+            "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+            "nombre": st.column_config.TextColumn("Empresa", width="medium", required=True),
+            "direccion": st.column_config.TextColumn("Domicilio", width="large"),
+            "colonia": st.column_config.TextColumn("Colonia", width="medium"),
+            "codigo_postal": st.column_config.TextColumn("C.P.", width="small"),
+            "rfc": st.column_config.TextColumn("RFC", width="medium"),
+            "estado": st.column_config.TextColumn("Estado", width="medium")
+        }
+        
+        cols_ver = ["id", "nombre", "direccion", "colonia", "codigo_postal", "rfc", "estado"]
+        # Asegurar existencia de columnas
+        for c in cols_ver:
+            if c not in df_show.columns: df_show[c] = None
 
         edited_df = st.data_editor(
             df_show[cols_ver],
             column_config=column_config,
             num_rows="dynamic",
             use_container_width=True,
-            height=500,
-            key="editor_herramientas"
+            key="editor_clientes"
         )
 
-        if st.button("💾 Actualizar Herramientas"):
-            # Check duplicados
-            skus = edited_df["codigo"].astype(str).tolist()
-            if len(skus) != len(set(skus)):
-                st.error("⛔ Error: Códigos SKU duplicados.")
-            else:
-                bar = st.progress(0, text="Guardando...")
-                total = len(edited_df)
-                for index, row in edited_df.iterrows():
-                    try:
-                        datos = {
-                            "codigo": row["codigo"],
-                            "Herramienta": row["Herramienta"],
-                            "descripcion": row["descripcion"],
-                            "marca": row["marca"],
-                            "Estado": row["Estado"]
-                        }
-                        if pd.notna(row["id"]):
-                            utils.supabase.table("Herramientas").update(datos).eq("id", row["id"]).execute()
-                        else:
-                            utils.supabase.table("Herramientas").insert(datos).execute()
-                    except: pass
-                    bar.progress((index+1)/total)
-                bar.empty()
-                st.success("✅ Lista de herramientas actualizada.")
-                st.cache_data.clear()
-                time.sleep(1)
-                st.rerun()
+        if st.button("💾 Actualizar Clientes"):
+            bar = st.progress(0, text="Guardando...")
+            total = len(edited_df)
+            for index, row in edited_df.iterrows():
+                try:
+                    datos = {
+                        "nombre": row["nombre"],
+                        "direccion": row["direccion"],
+                        "colonia": row["colonia"],
+                        "codigo_postal": row["codigo_postal"],
+                        "rfc": row["rfc"],
+                        "estado": row["estado"]
+                    }
+                    if pd.notna(row["id"]):
+                        utils.supabase.table("Clientes").update(datos).eq("id", row["id"]).execute()
+                    else:
+                        utils.supabase.table("Clientes").insert(datos).execute()
+                except: pass
+                bar.progress((index+1)/total)
+            bar.empty()
+            st.success("✅ Clientes actualizados.")
+            st.cache_data.clear()
+            time.sleep(1)
+            st.rerun()
 
 # ==========================================
-# 4. OTROS (GENÉRICOS)
+# 5. PROVEEDORES (GENÉRICO)
 # ==========================================
-elif opcion == "Clientes":
-    renderizar_catalogo_generico(
-        "Clientes", "Clientes", 
-        ["id", "nombre", "telefono", "direccion", "email"], 
-        {"nombre": "Cliente / Empresa", "telefono": "Teléfono", "direccion": "Dirección", "email": "Correo"}
-    )
-
 elif opcion == "Proveedores":
     renderizar_catalogo_generico(
         "Proveedores", "Proveedores", 
