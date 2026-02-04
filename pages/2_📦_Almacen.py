@@ -87,7 +87,7 @@ if "Insumos" in opcion_almacen:
                                             "cantidad": cant_mov,
                                             "responsable": responsable
                                         }).execute()
-                                    except: pass # Si falla el historial, no detiene el proceso principal
+                                    except: pass 
                                     
                                     st.success(f"✅ Entregado a {responsable}. Stock restante: {nuevo_stock}")
                                     time.sleep(1)
@@ -156,11 +156,9 @@ if "Insumos" in opcion_almacen:
         try:
             historial = pd.DataFrame(supabase.table("Historial_Insumos").select("*").order("id", desc=True).limit(50).execute().data)
             if not historial.empty:
-                # Asegurar columnas para visualización
                 cols_h = ["fecha", "codigo", "descripcion", "tipo_movimiento", "cantidad", "responsable"]
                 for c in cols_h:
                     if c not in historial.columns: historial[c] = "-"
-                
                 st.dataframe(historial[cols_h], use_container_width=True, hide_index=True)
             else:
                 st.info("Aún no hay movimientos registrados.")
@@ -168,7 +166,7 @@ if "Insumos" in opcion_almacen:
             st.info("No se pudo cargar el historial (Verifica que la tabla 'Historial_Insumos' exista en Supabase).")
 
 # ==================================================
-# 🔧 OPCIÓN 2: CONTROL DE HERRAMIENTAS (FIX ERROR KEYERROR)
+# 🔧 OPCIÓN 2: CONTROL DE HERRAMIENTAS
 # ==================================================
 elif "Herramientas" in opcion_almacen:
     # 1. Cargar Datos
@@ -181,16 +179,19 @@ elif "Herramientas" in opcion_almacen:
         df_her = pd.DataFrame()
         lista_personal = []
 
-    # --- 🛡️ BLINDAJE TOTAL ANTI-KEYERROR ---
-    # Si la tabla está vacía, inicializamos estructura
+    # --- 🛡️ BLINDAJE EXTREMO ANTI-KEYERROR ---
     if df_her.empty:
         df_her = pd.DataFrame(columns=["id", "codigo", "Herramienta", "marca", "Responsable", "Estado", "descripcion"])
     
-    # 🚨 AQUÍ ESTABA EL ERROR: Aseguramos que 'Responsable' exista SIEMPRE
+    # Normalización de nombre de columna (por si la DB la tiene en minúscula)
+    if "responsable" in df_her.columns and "Responsable" not in df_her.columns:
+        df_her["Responsable"] = df_her["responsable"]
+        
+    # Si aún así no existe, la creamos virtualmente
     if "Responsable" not in df_her.columns: 
-        df_her["Responsable"] = "Bodega" # Creamos la columna virtual si falta
+        df_her["Responsable"] = "Bodega"
     
-    # Rellenamos nulos por si acaso
+    # Rellenar nulos
     df_her["Responsable"] = df_her["Responsable"].fillna("Bodega")
     
     # Otras columnas seguras
