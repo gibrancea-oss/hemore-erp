@@ -10,7 +10,6 @@ st.set_page_config(page_title="Configuración Master", page_icon="⚙️", layou
 def renderizar_catalogo_generico(nombre_modulo, tabla_db, columnas_visibles, config_campos):
     st.markdown(f"### 📂 Catálogo de {nombre_modulo}")
     
-    # 1. Cargar Datos
     try:
         response = utils.supabase.table(tabla_db).select("*").order("id").execute()
         df = pd.DataFrame(response.data)
@@ -21,10 +20,8 @@ def renderizar_catalogo_generico(nombre_modulo, tabla_db, columnas_visibles, con
     if df.empty:
         df = pd.DataFrame(columns=["id"] + list(config_campos.keys()))
 
-    # Pestañas
-    tab1, tab2 = st.tabs([f"➕ Nuevo {nombre_modulo}", "📋 Lista Completa y Edición"])
+    tab1, tab2 = st.tabs([f"➕ Nuevo {nombre_modulo}", "📋 Lista Completa"])
 
-    # --- PESTAÑA 1: ALTA ---
     with tab1:
         st.write(f"Ingresa los datos del nuevo {nombre_modulo}.")
         with st.form(f"form_{tabla_db}", clear_on_submit=True):
@@ -59,7 +56,6 @@ def renderizar_catalogo_generico(nombre_modulo, tabla_db, columnas_visibles, con
                 else:
                     st.warning("El primer campo es obligatorio.")
 
-    # --- PESTAÑA 2: EDICIÓN ---
     with tab2:
         st.info("💡 Edita directamente en la tabla.")
         cols_finales = [c for c in columnas_visibles if c in df.columns]
@@ -103,20 +99,15 @@ opcion = st.sidebar.radio(
 )
 
 # ==========================================
-# 1. PERSONAL (Lógica Especializada RH)
+# 1. PERSONAL
 # ==========================================
 if opcion == "Personal":
     st.markdown("### 👥 Gestión de Recursos Humanos")
-    
-    # Cargar datos
     try:
         response = utils.supabase.table("Personal").select("*").order("id").execute()
         df = pd.DataFrame(response.data)
-        
-        # --- CORRECCIÓN DE FECHA ---
         if not df.empty and "fecha_ingreso" in df.columns:
             df["fecha_ingreso"] = pd.to_datetime(df["fecha_ingreso"], errors='coerce').dt.date
-            
     except: df = pd.DataFrame()
 
     if df.empty:
@@ -125,14 +116,13 @@ if opcion == "Personal":
     t1, t2 = st.tabs(["➕ Alta Personal", "📋 Kardex Completo"])
 
     with t1:
-        st.write("Ficha de Ingreso")
         with st.form("alta_personal", clear_on_submit=True):
             col1, col2 = st.columns(2)
             nombre = col1.text_input("Nombre Completo")
             puesto = col2.selectbox("Puesto", ["Operador", "Supervisor", "Almacén", "Mantenimiento", "Administrativo"])
             
             col3, col4 = st.columns(2)
-            nacimiento = col3.text_input("Año Nacimiento (Ej. 1995)")
+            nacimiento = col3.text_input("Año Nacimiento")
             domicilio = col4.text_input("Domicilio")
             
             col5, col6 = st.columns(2)
@@ -156,18 +146,17 @@ if opcion == "Personal":
                     time.sleep(1)
                     st.rerun()
                 else:
-                    st.warning("El nombre es obligatorio")
+                    st.warning("Nombre obligatorio")
 
     with t2:
-        # AJUSTE VISUAL: Configuramos anchos específicos para que quepa en pantalla
         column_config = {
             "id": st.column_config.NumberColumn(disabled=True, width="small"),
-            "nombre": st.column_config.TextColumn("Nombre", width="medium"), # Medio
+            "nombre": st.column_config.TextColumn("Nombre", width="medium"),
             "puesto": st.column_config.SelectboxColumn("Puesto", options=["Operador", "Supervisor", "Almacén", "Mantenimiento", "Administrativo"], width="medium"),
-            "fecha_ingreso": st.column_config.DateColumn("Ingreso", format="DD/MM/YYYY", width="small"), # Pequeño
-            "activo": st.column_config.CheckboxColumn("¿Activo?", width="small"), # Pequeño
+            "fecha_ingreso": st.column_config.DateColumn("Ingreso", format="DD/MM/YYYY", width="small"),
+            "activo": st.column_config.CheckboxColumn("¿Activo?", width="small"),
             "anio_nacimiento": st.column_config.TextColumn("Año", width="small"),
-            "domicilio": st.column_config.TextColumn("Domicilio", width="large"), # Grande para que quepa el texto
+            "domicilio": st.column_config.TextColumn("Domicilio", width="large"),
             "curp": st.column_config.TextColumn("CURP", width="medium"),
             "rfc": st.column_config.TextColumn("RFC", width="medium")
         }
@@ -179,8 +168,7 @@ if opcion == "Personal":
             df[cols_reales],
             column_config=column_config,
             num_rows="dynamic",
-            use_container_width=True, # ESTO ES CLAVE: Obliga a usar todo el ancho disponible
-            height=500,
+            use_container_width=True,
             key="editor_personal"
         )
 
@@ -206,7 +194,7 @@ if opcion == "Personal":
             st.rerun()
 
 # ==========================================
-# 2. INSUMOS (Lógica Especializada Almacén)
+# 2. INSUMOS (SOLUCIÓN DEFINITIVA)
 # ==========================================
 elif opcion == "Insumos":
     lista_unidades = ["Pzas", "Kg", "Lts", "Mts", "Cajas", "Paquetes", "Rollos", "Juegos", "Botes", "Galones"]
@@ -218,7 +206,8 @@ elif opcion == "Insumos":
     except: df = pd.DataFrame()
 
     if df.empty:
-        df = pd.DataFrame(columns=["id", "Nombre", "Cantidad", "Unidad", "stock_minimo"])
+        # Usamos 'descripcion' para asegurar compatibilidad
+        df = pd.DataFrame(columns=["id", "descripcion", "Cantidad", "Unidad", "stock_minimo"])
 
     t1, t2 = st.tabs(["➕ Alta de Insumo", "📋 Inventario Maestro"])
 
@@ -234,9 +223,12 @@ elif opcion == "Insumos":
             
             if st.form_submit_button("Guardar Insumo"):
                 if nuevo_nombre:
+                    # AQUI ESTA LA MAGIA: Guardamos en 'descripcion'
                     utils.supabase.table("Insumos").insert({
-                        "Nombre": nuevo_nombre, "Unidad": nueva_unidad,
-                        "Cantidad": nueva_cant, "stock_minimo": nuevo_min
+                        "descripcion": nuevo_nombre, 
+                        "Unidad": nueva_unidad,
+                        "Cantidad": nueva_cant, 
+                        "stock_minimo": nuevo_min
                     }).execute()
                     st.success(f"✅ {nuevo_nombre} agregado.")
                     st.cache_data.clear()
@@ -246,16 +238,17 @@ elif opcion == "Insumos":
                     st.warning("Descripción obligatoria")
 
     with t2:
-        # AJUSTE VISUAL: "Nombre" ahora dice "Descripción del Insumo"
+        # Configuración visual apuntando a 'descripcion'
         column_config = {
             "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
-            "Nombre": st.column_config.TextColumn("Descripción del Insumo", width="large", required=True),
+            "descripcion": st.column_config.TextColumn("Descripción del Insumo", width="large", required=True),
             "Cantidad": st.column_config.NumberColumn("Stock Actual", width="small"),
             "Unidad": st.column_config.SelectboxColumn("Unidad", options=lista_unidades, required=True, width="small"),
             "stock_minimo": st.column_config.NumberColumn("Mínimo ⚠️", width="small")
         }
         
-        cols_ver = ["id", "Nombre", "Cantidad", "Unidad", "stock_minimo"]
+        # Filtramos columnas usando 'descripcion'
+        cols_ver = ["id", "descripcion", "Cantidad", "Unidad", "stock_minimo"]
         cols_reales = [c for c in cols_ver if c in df.columns]
 
         edited_df = st.data_editor(
@@ -286,7 +279,7 @@ elif opcion == "Insumos":
             st.rerun()
 
 # ==========================================
-# 3. OTROS MÓDULOS (Lógica Genérica)
+# 3. OTROS MÓDULOS
 # ==========================================
 elif opcion == "Herramientas":
     renderizar_catalogo_generico(
