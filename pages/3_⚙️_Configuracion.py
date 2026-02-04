@@ -4,10 +4,9 @@ import utils # Tu archivo de conexión
 import time
 import datetime
 
-# CONFIGURACIÓN DE PÁGINA: MODO "WIDE" (Usa todo el ancho de la pantalla)
 st.set_page_config(page_title="Configuración Master", page_icon="⚙️", layout="wide")
 
-# --- FUNCIÓN INTELIGENTE (Para Clientes, Proveedores y Herramientas) ---
+# --- FUNCIÓN INTELIGENTE (Para Clientes y Proveedores) ---
 def renderizar_catalogo_generico(nombre_modulo, tabla_db, columnas_visibles, config_campos):
     st.markdown(f"### 📂 Catálogo de {nombre_modulo}")
     
@@ -100,7 +99,7 @@ opcion = st.sidebar.radio(
 )
 
 # ==========================================
-# 1. PERSONAL (KARDEX COMPLETO AJUSTADO)
+# 1. PERSONAL
 # ==========================================
 if opcion == "Personal":
     st.markdown("### 👥 Gestión de Recursos Humanos")
@@ -150,15 +149,14 @@ if opcion == "Personal":
                     st.warning("Nombre obligatorio")
 
     with t2:
-        # AJUSTE VISUAL PARA QUE QUEPA TODO: USAMOS "small" O "None" (AUTO)
         column_config = {
             "id": st.column_config.NumberColumn(disabled=True, width="small"),
-            "nombre": st.column_config.TextColumn("Nombre", width=None), # Auto ajuste
+            "nombre": st.column_config.TextColumn("Nombre", width=None), 
             "puesto": st.column_config.SelectboxColumn("Puesto", options=["Operador", "Supervisor", "Almacén", "Mantenimiento", "Administrativo"], width="small"),
             "fecha_ingreso": st.column_config.DateColumn("Ingreso", format="DD/MM/YYYY", width="small"),
             "activo": st.column_config.CheckboxColumn("Activo", width="small"),
             "anio_nacimiento": st.column_config.TextColumn("Año", width="small"),
-            "domicilio": st.column_config.TextColumn("Domicilio", width="medium"), # Reducido de large a medium
+            "domicilio": st.column_config.TextColumn("Domicilio", width="medium"),
             "curp": st.column_config.TextColumn("CURP", width="small"),
             "rfc": st.column_config.TextColumn("RFC", width="small")
         }
@@ -170,7 +168,7 @@ if opcion == "Personal":
             df[cols_reales],
             column_config=column_config,
             num_rows="dynamic",
-            use_container_width=True, # ESTO ESTIRA LA TABLA AL ANCHO DE PANTALLA
+            use_container_width=True, 
             key="editor_personal"
         )
 
@@ -196,32 +194,25 @@ if opcion == "Personal":
             st.rerun()
 
 # ==========================================
-# 2. INSUMOS (INVENTARIO MAESTRO COMPACTO)
+# 2. INSUMOS
 # ==========================================
 elif opcion == "Insumos":
     lista_unidades = ["Pzas", "Kg", "Lts", "Mts", "Cajas", "Paquetes", "Rollos", "Juegos", "Botes", "Galones"]
-    
     st.markdown("### 📦 Gestión de Almacén e Insumos")
     
-    # 1. CARGAR DATOS
     try:
         response = utils.supabase.table("Insumos").select("*").order("id").execute()
         df = pd.DataFrame(response.data)
         
-        # --- LIMPIEZA AUTOMÁTICA ---
         if not df.empty:
             if "Descripcion" not in df.columns: df["Descripcion"] = None
             for col_sucia in ["Insumo", "nombre", "Nombre"]:
-                if col_sucia in df.columns:
-                    df["Descripcion"] = df["Descripcion"].fillna(df[col_sucia])
-            
+                if col_sucia in df.columns: df["Descripcion"] = df["Descripcion"].fillna(df[col_sucia])
             if "codigo" not in df.columns: df["codigo"] = df["id"].astype(str)
             else: df["codigo"] = df["codigo"].fillna(df["id"].astype(str))
-
             if "stock_minimo" not in df.columns: df["stock_minimo"] = 5.0
-            if "Stock_Minimo" in df.columns:
-                 df["stock_minimo"] = df["stock_minimo"].fillna(df["Stock_Minimo"])
-
+            if "Stock_Minimo" in df.columns: df["stock_minimo"] = df["stock_minimo"].fillna(df["Stock_Minimo"])
+            
             cols_a_borrar = ["Insumo", "nombre", "Nombre", "Stock_Minimo"]
             df = df.drop(columns=[c for c in cols_a_borrar if c in df.columns], errors='ignore')
 
@@ -234,11 +225,9 @@ elif opcion == "Insumos":
 
     t1, t2 = st.tabs(["➕ Alta de Insumo", "📋 Inventario Maestro"])
 
-    # --- PESTAÑA ALTA ---
     with t1:
         with st.form("alta_insumo", clear_on_submit=True):
             st.write("Datos del Insumo")
-            
             col_cod, col_nom = st.columns([1, 3]) 
             nuevo_codigo = col_cod.text_input("Código / SKU", placeholder="Ej. HEM-CL-001", help="Código único alfanumérico")
             nuevo_nombre = col_nom.text_input("Descripción del Insumo")
@@ -250,7 +239,6 @@ elif opcion == "Insumos":
             
             if st.form_submit_button("Guardar Insumo"):
                 if nuevo_nombre and nuevo_codigo:
-                    # VALIDACIÓN ANTI-DUPLICADOS
                     duplicado_codigo = False
                     if not df.empty:
                         if nuevo_codigo.strip() in df["codigo"].astype(str).str.strip().values:
@@ -260,12 +248,8 @@ elif opcion == "Insumos":
                     if not duplicado_codigo:
                         try:
                             datos_insert = {
-                                "codigo": nuevo_codigo, 
-                                "Descripcion": nuevo_nombre,
-                                "Insumo": nuevo_nombre,  # Espejo
-                                "Unidad": nueva_unidad,
-                                "Cantidad": nueva_cant, 
-                                "stock_minimo": nuevo_min
+                                "codigo": nuevo_codigo, "Descripcion": nuevo_nombre, "Insumo": nuevo_nombre,
+                                "Unidad": nueva_unidad, "Cantidad": nueva_cant, "stock_minimo": nuevo_min
                             }
                             utils.supabase.table("Insumos").insert(datos_insert).execute()
                             st.success(f"✅ Insumo {nuevo_codigo} agregado.")
@@ -273,103 +257,205 @@ elif opcion == "Insumos":
                             time.sleep(1)
                             st.rerun()
                         except Exception as e:
-                            # Fallback si falla el espejo
                             if "column \"Insumo\"" in str(e):
                                 datos_insert.pop("Insumo")
                                 utils.supabase.table("Insumos").insert(datos_insert).execute()
                                 st.success(f"✅ Insumo {nuevo_codigo} agregado.")
                                 st.rerun()
-                            else:
-                                st.error(f"Error al guardar: {e}")
-                else:
-                    st.warning("El Código y la Descripción son obligatorios.")
+                            else: st.error(f"Error al guardar: {e}")
+                else: st.warning("Código y Descripción obligatorios.")
 
-    # --- PESTAÑA EDICIÓN MAESTRA (AJUSTADA AL ANCHO) ---
     with t2:
-        # Buscador
         col_search, _ = st.columns([1, 1])
         busqueda = col_search.text_input("🔍 Buscar Insumo", placeholder="Escribe código o descripción...")
 
         df_display = df.copy()
         if busqueda:
-            mask = (
-                df_display["codigo"].astype(str).str.contains(busqueda, case=False, na=False) | 
-                df_display["Descripcion"].astype(str).str.contains(busqueda, case=False, na=False)
-            )
+            mask = (df_display["codigo"].astype(str).str.contains(busqueda, case=False, na=False) | 
+                    df_display["Descripcion"].astype(str).str.contains(busqueda, case=False, na=False))
             df_display = df_display[mask]
 
         column_config = {
-            # Anchos ajustados para que quepan
             "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
             "codigo": st.column_config.TextColumn("Código SKU", required=True, width="medium"),
-            "Descripcion": st.column_config.TextColumn("Descripción", width=None), # Flexible
+            "Descripcion": st.column_config.TextColumn("Descripción", width=None),
             "Cantidad": st.column_config.NumberColumn("Stock", width="small", min_value=0),
             "Unidad": st.column_config.SelectboxColumn("Unidad", options=lista_unidades, required=True, width="small"),
             "stock_minimo": st.column_config.NumberColumn("Min ⚠️", width="small")
         }
         
         cols_ver = ["id", "codigo", "Descripcion", "Cantidad", "Unidad", "stock_minimo"]
-        for c in cols_ver:
+        for c in cols_ver: 
             if c not in df_display.columns: df_display[c] = None
             
         edited_df = st.data_editor(
-            df_display[cols_ver],
-            column_config=column_config,
-            num_rows="dynamic",
-            use_container_width=True, # CLAVE: Ocupa todo el ancho
-            height=500,
-            key="editor_insumos_codigos_v3"
+            df_display[cols_ver], column_config=column_config, num_rows="dynamic",
+            use_container_width=True, height=500, key="editor_insumos_codigos_v3"
         )
 
         if st.button("💾 Guardar Cambios en Inventario"):
-            codigos_editados = edited_df["codigo"].astype(str).tolist()
-            if len(codigos_editados) != len(set(codigos_editados)):
-                 st.error("⛔ Error: Hay códigos SKU duplicados en la tabla.")
+            codigos = edited_df["codigo"].astype(str).tolist()
+            if len(codigos) != len(set(codigos)): st.error("⛔ Error: Códigos duplicados.")
             else:
-                bar = st.progress(0, text="Guardando cambios...")
+                bar = st.progress(0, text="Guardando...")
                 total = len(edited_df)
-                
                 for index, row in edited_df.iterrows():
                     try:
-                        datos = {
-                            "codigo": row["codigo"], 
-                            "Descripcion": row["Descripcion"],
-                            "Insumo": row["Descripcion"],
-                            "Cantidad": row["Cantidad"],
-                            "Unidad": row["Unidad"],
-                            "stock_minimo": row["stock_minimo"]
-                        }
-                        
-                        if pd.notna(row["id"]):
-                            utils.supabase.table("Insumos").update(datos).eq("id", row["id"]).execute()
-                        else:
-                            utils.supabase.table("Insumos").insert(datos).execute()
+                        datos = {"codigo": row["codigo"], "Descripcion": row["Descripcion"], "Insumo": row["Descripcion"],
+                                 "Cantidad": row["Cantidad"], "Unidad": row["Unidad"], "stock_minimo": row["stock_minimo"]}
+                        if pd.notna(row["id"]): utils.supabase.table("Insumos").update(datos).eq("id", row["id"]).execute()
+                        else: utils.supabase.table("Insumos").insert(datos).execute()
                     except:
-                        # Fallback
                         try:
                             datos.pop("Insumo")
                             if pd.notna(row["id"]): utils.supabase.table("Insumos").update(datos).eq("id", row["id"]).execute()
                             else: utils.supabase.table("Insumos").insert(datos).execute()
                         except: pass
-                    
                     bar.progress((index+1)/total)
-                
                 bar.empty()
-                st.success("✅ Inventario actualizado.")
+                st.success("✅ Actualizado.")
                 st.cache_data.clear()
                 time.sleep(1)
                 st.rerun()
 
 # ==========================================
-# 3. OTROS MÓDULOS
+# 3. HERRAMIENTAS (NUEVO Y MEJORADO)
 # ==========================================
 elif opcion == "Herramientas":
-    renderizar_catalogo_generico(
-        "Herramientas", "Herramientas", 
-        ["id", "Herramienta", "Estado", "Ubicacion"], 
-        {"Herramienta": "Nombre Herramienta", "Estado": ["BUENO", "REGULAR", "MALO"], "Ubicacion": "Ubicación"}
-    )
+    st.markdown("### 🛠️ Gestión de Herramientas")
+    
+    # 1. CARGAR DATOS
+    try:
+        response = utils.supabase.table("Herramientas").select("*").order("id").execute()
+        df = pd.DataFrame(response.data)
+        
+        # Inicializar columnas nuevas si están vacías
+        if not df.empty:
+            if "codigo" not in df.columns: df["codigo"] = df["id"].astype(str)
+            else: df["codigo"] = df["codigo"].fillna(df["id"].astype(str))
+            
+            # Mapeamos 'Herramienta' (DB) a 'nombre' (Visual) si es necesario
+            # En este caso usaremos 'Herramienta' como el campo de nombre para guardar compatibilidad
+            
+    except Exception as e:
+        st.error(f"Error cargando herramientas: {e}")
+        df = pd.DataFrame()
 
+    if df.empty:
+        df = pd.DataFrame(columns=["id", "codigo", "Herramienta", "descripcion", "marca", "Estado"])
+
+    t1, t2 = st.tabs(["➕ Alta Herramienta", "📋 Lista Completa"])
+
+    # --- ALTA ---
+    with t1:
+        with st.form("alta_herramienta", clear_on_submit=True):
+            st.write("Ficha de Herramienta")
+            
+            c1, c2 = st.columns([1, 3])
+            nuevo_sku = c1.text_input("Código SKU", placeholder="Ej. TAL-MAK-01")
+            nuevo_nombre = c2.text_input("Nombre de la Herramienta")
+            
+            c3, c4, c5 = st.columns(3)
+            nueva_marca = c3.text_input("Marca")
+            nuevo_estado = c4.selectbox("Estado", ["BUEN ESTADO", "MAL ESTADO", "EN REPARACIÓN", "BAJA"])
+            nueva_desc = c5.text_input("Descripción Corta")
+
+            if st.form_submit_button("Guardar Herramienta"):
+                if nuevo_nombre and nuevo_sku:
+                    # Validación Duplicados
+                    duplicado = False
+                    if not df.empty:
+                         if nuevo_sku.strip() in df["codigo"].astype(str).str.strip().values:
+                             st.error(f"⛔ El código {nuevo_sku} ya existe.")
+                             duplicado = True
+                    
+                    if not duplicado:
+                        try:
+                            datos = {
+                                "codigo": nuevo_sku,
+                                "Herramienta": nuevo_nombre, # Mapeo a columna existente
+                                "marca": nueva_marca,
+                                "Estado": nuevo_estado,
+                                "descripcion": nueva_desc
+                            }
+                            utils.supabase.table("Herramientas").insert(datos).execute()
+                            st.success(f"✅ {nuevo_nombre} agregado.")
+                            st.cache_data.clear()
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error al guardar: {e}")
+                else:
+                    st.warning("Código y Nombre son obligatorios.")
+
+    # --- LISTA Y BÚSQUEDA ---
+    with t2:
+        col_b, _ = st.columns([1, 1])
+        busqueda = col_b.text_input("🔍 Buscar Herramienta", placeholder="SKU, Nombre, Marca...")
+        
+        df_show = df.copy()
+        if busqueda:
+            mask = (
+                df_show["codigo"].astype(str).str.contains(busqueda, case=False, na=False) |
+                df_show["Herramienta"].astype(str).str.contains(busqueda, case=False, na=False) |
+                df_show["marca"].astype(str).str.contains(busqueda, case=False, na=False)
+            )
+            df_show = df_show[mask]
+
+        column_config = {
+            "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+            "codigo": st.column_config.TextColumn("Código SKU", required=True, width="medium"),
+            "Herramienta": st.column_config.TextColumn("Nombre Herramienta", width=None),
+            "descripcion": st.column_config.TextColumn("Descripción", width="medium"),
+            "marca": st.column_config.TextColumn("Marca", width="small"),
+            "Estado": st.column_config.SelectboxColumn("Estado", options=["BUEN ESTADO", "MAL ESTADO", "EN REPARACIÓN", "BAJA"], width="small")
+        }
+        
+        cols_ver = ["id", "codigo", "Herramienta", "descripcion", "marca", "Estado"]
+        for c in cols_ver:
+             if c not in df_show.columns: df_show[c] = None
+
+        edited_df = st.data_editor(
+            df_show[cols_ver],
+            column_config=column_config,
+            num_rows="dynamic",
+            use_container_width=True,
+            height=500,
+            key="editor_herramientas"
+        )
+
+        if st.button("💾 Actualizar Herramientas"):
+            # Check duplicados
+            skus = edited_df["codigo"].astype(str).tolist()
+            if len(skus) != len(set(skus)):
+                st.error("⛔ Error: Códigos SKU duplicados.")
+            else:
+                bar = st.progress(0, text="Guardando...")
+                total = len(edited_df)
+                for index, row in edited_df.iterrows():
+                    try:
+                        datos = {
+                            "codigo": row["codigo"],
+                            "Herramienta": row["Herramienta"],
+                            "descripcion": row["descripcion"],
+                            "marca": row["marca"],
+                            "Estado": row["Estado"]
+                        }
+                        if pd.notna(row["id"]):
+                            utils.supabase.table("Herramientas").update(datos).eq("id", row["id"]).execute()
+                        else:
+                            utils.supabase.table("Herramientas").insert(datos).execute()
+                    except: pass
+                    bar.progress((index+1)/total)
+                bar.empty()
+                st.success("✅ Lista de herramientas actualizada.")
+                st.cache_data.clear()
+                time.sleep(1)
+                st.rerun()
+
+# ==========================================
+# 4. OTROS (GENÉRICOS)
+# ==========================================
 elif opcion == "Clientes":
     renderizar_catalogo_generico(
         "Clientes", "Clientes", 
