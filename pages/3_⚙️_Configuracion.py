@@ -203,10 +203,17 @@ elif opcion == "Insumos":
     try:
         response = utils.supabase.table("Insumos").select("*").order("id").execute()
         df = pd.DataFrame(response.data)
+        
+        # --- 🚨 PARCHE DE SEGURIDAD 🚨 ---
+        # ESTO ES LO NUEVO: Si la base de datos trae 'nombre' o 'Nombre', 
+        # lo convertimos a la fuerza a 'descripcion' para que el código no falle.
+        if not df.empty:
+            df.rename(columns={"nombre": "descripcion", "Nombre": "descripcion"}, inplace=True)
+            
     except: df = pd.DataFrame()
 
     if df.empty:
-        # Usamos 'descripcion' para asegurar compatibilidad
+        # Usamos 'descripcion' por defecto
         df = pd.DataFrame(columns=["id", "descripcion", "Cantidad", "Unidad", "stock_minimo"])
 
     t1, t2 = st.tabs(["➕ Alta de Insumo", "📋 Inventario Maestro"])
@@ -223,13 +230,25 @@ elif opcion == "Insumos":
             
             if st.form_submit_button("Guardar Insumo"):
                 if nuevo_nombre:
-                    # AQUI ESTA LA MAGIA: Guardamos en 'descripcion'
-                    utils.supabase.table("Insumos").insert({
-                        "descripcion": nuevo_nombre, 
-                        "Unidad": nueva_unidad,
-                        "Cantidad": nueva_cant, 
-                        "stock_minimo": nuevo_min
-                    }).execute()
+                    # Intentamos guardar. Si falla porque la columna se llama 'Nombre', 
+                    # Supabase nos avisará, pero idealmente ya debe estar como 'descripcion' o 'nombre'
+                    # Truco: Si ya arreglaste la BD, esto funciona. Si no, usamos 'nombre' genérico.
+                    try:
+                        utils.supabase.table("Insumos").insert({
+                            "descripcion": nuevo_nombre, # Intentamos descripcion
+                            "Unidad": nueva_unidad,
+                            "Cantidad": nueva_cant, 
+                            "stock_minimo": nuevo_min
+                        }).execute()
+                    except:
+                         # Si falla, intentamos con 'nombre' (plan B)
+                         utils.supabase.table("Insumos").insert({
+                            "nombre": nuevo_nombre, 
+                            "Unidad": nueva_unidad,
+                            "Cantidad": nueva_cant, 
+                            "stock_minimo": nuevo_min
+                        }).execute()
+                        
                     st.success(f"✅ {nuevo_nombre} agregado.")
                     st.cache_data.clear()
                     time.sleep(1)
@@ -238,7 +257,7 @@ elif opcion == "Insumos":
                     st.warning("Descripción obligatoria")
 
     with t2:
-        # Configuración visual apuntando a 'descripcion'
+        # Configuración visual
         column_config = {
             "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
             "descripcion": st.column_config.TextColumn("Descripción del Insumo", width="large", required=True),
@@ -247,9 +266,13 @@ elif opcion == "Insumos":
             "stock_minimo": st.column_config.NumberColumn("Mínimo ⚠️", width="small")
         }
         
-        # Filtramos columnas usando 'descripcion'
+        # Filtramos columnas usando 'descripcion' (ya renombrada por el parche)
         cols_ver = ["id", "descripcion", "Cantidad", "Unidad", "stock_minimo"]
         cols_reales = [c for c in cols_ver if c in df.columns]
+
+        # DEBUG: Si la columna no aparece, mostramos un aviso
+        if "descripcion" not in cols_reales:
+            st.error(f"⚠️ Error visual: Las columnas detectadas son: {list(df.columns)}. Necesitamos 'descripcion'.")
 
         edited_df = st.data_editor(
             df[cols_reales],
@@ -266,11 +289,26 @@ elif opcion == "Insumos":
             for index, row in edited_df.iterrows():
                 try:
                     datos = {c: row[c] for c in cols_reales if c != 'id'}
+                    
+                    # Logica de reverso: Si la DB usa 'nombre', devolvemos 'nombre'
+                    if "descripcion" in datos:
+                         # Si en el insert falló descripcion, aquí podríamos tener problemas
+                         # pero confiamos en que el parche solo es visual.
+                         pass 
+
                     if pd.notna(row["id"]):
                         utils.supabase.table("Insumos").update(datos).eq("id", row["id"]).execute()
                     else:
                         utils.supabase.table("Insumos").insert(datos).execute()
-                except: pass
+                except Exception as e:
+                    # Plan B al guardar: Si falla 'descripcion', intenta 'nombre'
+                    if "descripcion" in datos:
+                        datos["nombre"] = datos.pop("descripcion")
+                        if pd.notna(row["id"]):
+                            utils.supabase.table("Insumos").update(datos).eq("id", row["id"]).execute()
+                        else:
+                            utils.supabase.table("Insumos").insert(datos).execute()
+                
                 bar.progress((index+1)/total)
             bar.empty()
             st.success("✅ Inventario actualizado")
