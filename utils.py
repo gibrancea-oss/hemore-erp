@@ -1,44 +1,31 @@
 import streamlit as st
 from supabase import create_client
 import pandas as pd
-import qrcode
-import io
-import base64
 
-# --- CONEXIÓN A SUPABASE ---
+# --- CONEXIÓN PRINCIPAL ---
+@st.cache_resource
 def init_connection():
     try:
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_KEY"]
         return create_client(url, key)
     except Exception as e:
-        st.error(f"❌ Error de conexión: {e}")
         return None
 
-# --- VALIDAR SESIÓN ---
-def validar_login():
-    if "autenticado" not in st.session_state:
-        st.session_state.autenticado = False
-    
-    if not st.session_state.autenticado:
-        st.warning("🔒 Acceso denegado. Por favor inicia sesión en el Inicio.")
-        st.stop() # Detiene la ejecución si no está logueado
+# ESTA ES LA LINEA QUE FALTA Y QUE ARREGLA EL ERROR:
+# Creamos la variable 'supabase' para que los otros archivos la puedan usar
+supabase = init_connection()
 
-# --- ESTILOS COMUNES ---
-def cargar_estilos():
-    st.markdown("""
-        <style>
-        .stMetric { background-color: #f0f2f6; border-radius: 10px; padding: 10px; }
-        </style>
-    """, unsafe_allow_html=True)
-
-# --- GENERADOR QR ---
-def generar_qr_b64(texto):
+# --- FUNCIONES DE AYUDA (CACHÉ) ---
+# Esto ayuda a que el sistema no sea lento con 50 usuarios
+@st.cache_data(ttl=60)
+def cargar_datos(tabla):
+    if not supabase: return pd.DataFrame()
     try:
-        qr = qrcode.QRCode(version=1, box_size=10, border=0)
-        qr.add_data(str(texto))
-        qr.make(fit=True)
-        buffer = io.BytesIO()
-        qr.make_image(fill='black', back_color='white').save(buffer, format="PNG")
-        return f"data:image/png;base64,{base64.b64encode(buffer.getvalue()).decode()}"
-    except: return None
+        response = supabase.table(tabla).select("*").execute()
+        return pd.DataFrame(response.data)
+    except Exception as e:
+        return pd.DataFrame()
+
+def limpiar_cache():
+    st.cache_data.clear()
