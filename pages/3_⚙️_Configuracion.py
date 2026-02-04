@@ -194,7 +194,7 @@ if opcion == "Personal":
             st.rerun()
 
 # ==========================================
-# 2. INSUMOS (SOLUCIÓN ERROR "NOT NULL INSUMO")
+# 2. INSUMOS (CON BUSCADOR Y ANTI-DUPLICADOS)
 # ==========================================
 elif opcion == "Insumos":
     lista_unidades = ["Pzas", "Kg", "Lts", "Mts", "Cajas", "Paquetes", "Rollos", "Juegos", "Botes", "Galones"]
@@ -206,7 +206,7 @@ elif opcion == "Insumos":
         response = utils.supabase.table("Insumos").select("*").order("id").execute()
         df = pd.DataFrame(response.data)
         
-        # --- LIMPIEZA AUTOMÁTICA ---
+        # --- LIMPIEZA ---
         if not df.empty:
             if "Descripcion" not in df.columns: df["Descripcion"] = None
             for col_sucia in ["Insumo", "nombre", "Nombre"]:
@@ -232,7 +232,7 @@ elif opcion == "Insumos":
 
     t1, t2 = st.tabs(["➕ Alta de Insumo", "📋 Inventario Maestro"])
 
-    # --- PESTAÑA ALTA CON FIX DE ERROR ---
+    # --- PESTAÑA ALTA (CON VALIDACIÓN DE DUPLICADOS) ---
     with t1:
         with st.form("alta_insumo", clear_on_submit=True):
             st.write("Datos del Insumo")
@@ -248,37 +248,53 @@ elif opcion == "Insumos":
             
             if st.form_submit_button("Guardar Insumo"):
                 if nuevo_nombre and nuevo_codigo:
-                    try:
-                        # --- EL TRUCO DEL ESPEJO ---
-                        # Enviamos el nombre tanto a 'Descripcion' como a 'Insumo'
-                        # para satisfacer a la base de datos antigua y a la nueva.
-                        datos_insert = {
-                            "codigo": nuevo_codigo, 
-                            "Descripcion": nuevo_nombre,
-                            "Insumo": nuevo_nombre,  # <--- ESTO ARREGLA EL ERROR 23502
-                            "Unidad": nueva_unidad,
-                            "Cantidad": nueva_cant, 
-                            "stock_minimo": nuevo_min
-                        }
-                        utils.supabase.table("Insumos").insert(datos_insert).execute()
-                        st.success(f"✅ Insumo {nuevo_codigo} agregado exitosamente.")
-                        st.cache_data.clear()
-                        time.sleep(1)
-                        st.rerun()
-                    except Exception as e:
-                        # Si falla, intentamos sin 'Insumo' (por si acaso ya la borraste)
-                        if "column \"Insumo\" of relation \"Insumos\" does not exist" in str(e):
-                             datos_insert.pop("Insumo")
-                             utils.supabase.table("Insumos").insert(datos_insert).execute()
-                             st.success(f"✅ Insumo {nuevo_codigo} agregado.")
-                             st.rerun()
-                        else:
+                    # --- VALIDACIÓN ANTI-DUPLICADOS ---
+                    duplicado_codigo = False
+                    if not df.empty:
+                        # Verificamos si el código ya existe
+                        if nuevo_codigo.strip() in df["codigo"].astype(str).str.strip().values:
+                            st.error(f"⛔ Error: El código '{nuevo_codigo}' ya existe en el inventario.")
+                            duplicado_codigo = True
+                        
+                        # (Opcional) Advertencia si la descripción es idéntica
+                        elif nuevo_nombre.strip().lower() in df["Descripcion"].astype(str).str.strip().str.lower().values:
+                            st.warning(f"⚠️ Nota: Ya existe un artículo con la descripción '{nuevo_nombre}'. Verifica que no sea el mismo.")
+
+                    if not duplicado_codigo:
+                        try:
+                            datos_insert = {
+                                "codigo": nuevo_codigo, 
+                                "Descripcion": nuevo_nombre,
+                                "Insumo": nuevo_nombre,  # Espejo
+                                "Unidad": nueva_unidad,
+                                "Cantidad": nueva_cant, 
+                                "stock_minimo": nuevo_min
+                            }
+                            utils.supabase.table("Insumos").insert(datos_insert).execute()
+                            st.success(f"✅ Insumo {nuevo_codigo} agregado exitosamente.")
+                            st.cache_data.clear()
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
                             st.error(f"Error al guardar: {e}")
                 else:
                     st.warning("El Código y la Descripción son obligatorios.")
 
-    # --- PESTAÑA EDICIÓN MAESTRA ---
+    # --- PESTAÑA EDICIÓN MAESTRA (CON BUSCADOR) ---
     with t2:
+        # 1. BUSCADOR INTELIGENTE
+        col_search, _ = st.columns([1, 1])
+        busqueda = col_search.text_input("🔍 Buscar Insumo", placeholder="Escribe código o descripción...")
+
+        # Filtramos el DF según la búsqueda
+        df_display = df.copy()
+        if busqueda:
+            mask = (
+                df_display["codigo"].astype(str).str.contains(busqueda, case=False, na=False) | 
+                df_display["Descripcion"].astype(str).str.contains(busqueda, case=False, na=False)
+            )
+            df_display = df_display[mask]
+
         column_config = {
             "id": st.column_config.NumberColumn("ID Sistema", disabled=True, width="small"),
             "codigo": st.column_config.TextColumn("Código SKU", required=True, width="medium", help="Código alfanumérico único"),
@@ -290,54 +306,58 @@ elif opcion == "Insumos":
         
         cols_ver = ["id", "codigo", "Descripcion", "Cantidad", "Unidad", "stock_minimo"]
         for c in cols_ver:
-            if c not in df.columns: df[c] = None
+            if c not in df_display.columns: df_display[c] = None
             
         edited_df = st.data_editor(
-            df[cols_ver],
+            df_display[cols_ver],
             column_config=column_config,
             num_rows="dynamic",
             use_container_width=True,
             height=500,
-            key="editor_insumos_codigos_v2"
+            key="editor_insumos_codigos_v3"
         )
 
         if st.button("💾 Guardar Cambios en Inventario"):
-            bar = st.progress(0, text="Guardando cambios...")
-            total = len(edited_df)
-            
-            for index, row in edited_df.iterrows():
-                try:
-                    # Al editar, también actualizamos ambas columnas para mantener consistencia
-                    datos = {
-                        "codigo": row["codigo"], 
-                        "Descripcion": row["Descripcion"],
-                        "Insumo": row["Descripcion"], # Espejo al editar también
-                        "Cantidad": row["Cantidad"],
-                        "Unidad": row["Unidad"],
-                        "stock_minimo": row["stock_minimo"]
-                    }
-                    
-                    if pd.notna(row["id"]):
-                        utils.supabase.table("Insumos").update(datos).eq("id", row["id"]).execute()
-                    else:
-                        utils.supabase.table("Insumos").insert(datos).execute()
-                except Exception as e:
-                    # Fallback si falla el espejo
+            # --- VALIDACIÓN ANTI-DUPLICADOS EN TABLA ---
+            # Verificamos si hay códigos repetidos en lo que el usuario acaba de editar
+            codigos_editados = edited_df["codigo"].astype(str).tolist()
+            if len(codigos_editados) != len(set(codigos_editados)):
+                 st.error("⛔ Error: Hay códigos SKU duplicados en la tabla. Por favor, asegúrate de que cada SKU sea único antes de guardar.")
+            else:
+                bar = st.progress(0, text="Guardando cambios...")
+                total = len(edited_df)
+                
+                for index, row in edited_df.iterrows():
                     try:
-                        datos.pop("Insumo")
+                        datos = {
+                            "codigo": row["codigo"], 
+                            "Descripcion": row["Descripcion"],
+                            "Insumo": row["Descripcion"], # Espejo
+                            "Cantidad": row["Cantidad"],
+                            "Unidad": row["Unidad"],
+                            "stock_minimo": row["stock_minimo"]
+                        }
+                        
                         if pd.notna(row["id"]):
                             utils.supabase.table("Insumos").update(datos).eq("id", row["id"]).execute()
                         else:
+                            # Chequeo extra por si agregan fila nueva en la tabla directo
                             utils.supabase.table("Insumos").insert(datos).execute()
-                    except: pass
+                    except Exception as e:
+                         # Fallback sin espejo
+                        try:
+                            datos.pop("Insumo")
+                            if pd.notna(row["id"]): utils.supabase.table("Insumos").update(datos).eq("id", row["id"]).execute()
+                            else: utils.supabase.table("Insumos").insert(datos).execute()
+                        except: pass
+                    
+                    bar.progress((index+1)/total)
                 
-                bar.progress((index+1)/total)
-            
-            bar.empty()
-            st.success("✅ Inventario actualizado.")
-            st.cache_data.clear()
-            time.sleep(1)
-            st.rerun()
+                bar.empty()
+                st.success("✅ Inventario actualizado.")
+                st.cache_data.clear()
+                time.sleep(1)
+                st.rerun()
 
 # ==========================================
 # 3. OTROS MÓDULOS
