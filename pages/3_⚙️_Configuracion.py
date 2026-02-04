@@ -113,8 +113,7 @@ if opcion == "Personal":
         response = utils.supabase.table("Personal").select("*").order("id").execute()
         df = pd.DataFrame(response.data)
         
-        # --- CORRECCIÓN DE ERROR DE FECHA ---
-        # Convertimos el texto de la base de datos a formato FECHA REAL
+        # --- CORRECCIÓN DE FECHA ---
         if not df.empty and "fecha_ingreso" in df.columns:
             df["fecha_ingreso"] = pd.to_datetime(df["fecha_ingreso"], errors='coerce').dt.date
             
@@ -160,14 +159,17 @@ if opcion == "Personal":
                     st.warning("El nombre es obligatorio")
 
     with t2:
-        st.info("Desmarca la casilla 'Activo' para dar de baja sin borrar historial.")
-        
+        # AJUSTE VISUAL: Configuramos anchos específicos para que quepa en pantalla
         column_config = {
             "id": st.column_config.NumberColumn(disabled=True, width="small"),
-            "nombre": st.column_config.TextColumn("Nombre", width="medium"),
-            "puesto": st.column_config.SelectboxColumn("Puesto", options=["Operador", "Supervisor", "Almacén", "Mantenimiento", "Administrativo"]),
-            "fecha_ingreso": st.column_config.DateColumn("Ingreso", format="DD/MM/YYYY"),
-            "activo": st.column_config.CheckboxColumn("¿Activo?")
+            "nombre": st.column_config.TextColumn("Nombre", width="medium"), # Medio
+            "puesto": st.column_config.SelectboxColumn("Puesto", options=["Operador", "Supervisor", "Almacén", "Mantenimiento", "Administrativo"], width="medium"),
+            "fecha_ingreso": st.column_config.DateColumn("Ingreso", format="DD/MM/YYYY", width="small"), # Pequeño
+            "activo": st.column_config.CheckboxColumn("¿Activo?", width="small"), # Pequeño
+            "anio_nacimiento": st.column_config.TextColumn("Año", width="small"),
+            "domicilio": st.column_config.TextColumn("Domicilio", width="large"), # Grande para que quepa el texto
+            "curp": st.column_config.TextColumn("CURP", width="medium"),
+            "rfc": st.column_config.TextColumn("RFC", width="medium")
         }
         
         cols_ver = ["id", "nombre", "puesto", "anio_nacimiento", "domicilio", "curp", "rfc", "fecha_ingreso", "activo"]
@@ -177,7 +179,7 @@ if opcion == "Personal":
             df[cols_reales],
             column_config=column_config,
             num_rows="dynamic",
-            use_container_width=True,
+            use_container_width=True, # ESTO ES CLAVE: Obliga a usar todo el ancho disponible
             height=500,
             key="editor_personal"
         )
@@ -188,8 +190,6 @@ if opcion == "Personal":
             for index, row in edited_df.iterrows():
                 try:
                     datos = {c: row[c] for c in cols_reales if c != 'id'}
-                    
-                    # Convertimos la fecha a string para guardarla
                     if "fecha_ingreso" in datos and datos["fecha_ingreso"]:
                          datos["fecha_ingreso"] = str(datos["fecha_ingreso"])
 
@@ -246,12 +246,13 @@ elif opcion == "Insumos":
                     st.warning("Descripción obligatoria")
 
     with t2:
+        # AJUSTE VISUAL: "Nombre" ahora dice "Descripción del Insumo"
         column_config = {
             "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
             "Nombre": st.column_config.TextColumn("Descripción del Insumo", width="large", required=True),
-            "Cantidad": st.column_config.NumberColumn("Stock Actual"),
-            "Unidad": st.column_config.SelectboxColumn("Unidad", options=lista_unidades, required=True),
-            "stock_minimo": st.column_config.NumberColumn("Stock Mínimo ⚠️")
+            "Cantidad": st.column_config.NumberColumn("Stock Actual", width="small"),
+            "Unidad": st.column_config.SelectboxColumn("Unidad", options=lista_unidades, required=True, width="small"),
+            "stock_minimo": st.column_config.NumberColumn("Mínimo ⚠️", width="small")
         }
         
         cols_ver = ["id", "Nombre", "Cantidad", "Unidad", "stock_minimo"]
