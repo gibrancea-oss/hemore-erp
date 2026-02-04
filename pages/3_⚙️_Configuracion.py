@@ -194,7 +194,7 @@ if opcion == "Personal":
             st.rerun()
 
 # ==========================================
-# 2. INSUMOS (CON CÓDIGO ALFANUMÉRICO)
+# 2. INSUMOS (SOLUCIÓN ERROR "NOT NULL INSUMO")
 # ==========================================
 elif opcion == "Insumos":
     lista_unidades = ["Pzas", "Kg", "Lts", "Mts", "Cajas", "Paquetes", "Rollos", "Juegos", "Botes", "Galones"]
@@ -213,7 +213,6 @@ elif opcion == "Insumos":
                 if col_sucia in df.columns:
                     df["Descripcion"] = df["Descripcion"].fillna(df[col_sucia])
             
-            # Unificamos el código (si no existe, usamos el ID como fallback visual)
             if "codigo" not in df.columns: df["codigo"] = df["id"].astype(str)
             else: df["codigo"] = df["codigo"].fillna(df["id"].astype(str))
 
@@ -233,7 +232,7 @@ elif opcion == "Insumos":
 
     t1, t2 = st.tabs(["➕ Alta de Insumo", "📋 Inventario Maestro"])
 
-    # --- PESTAÑA ALTA ---
+    # --- PESTAÑA ALTA CON FIX DE ERROR ---
     with t1:
         with st.form("alta_insumo", clear_on_submit=True):
             st.write("Datos del Insumo")
@@ -250,9 +249,13 @@ elif opcion == "Insumos":
             if st.form_submit_button("Guardar Insumo"):
                 if nuevo_nombre and nuevo_codigo:
                     try:
+                        # --- EL TRUCO DEL ESPEJO ---
+                        # Enviamos el nombre tanto a 'Descripcion' como a 'Insumo'
+                        # para satisfacer a la base de datos antigua y a la nueva.
                         datos_insert = {
                             "codigo": nuevo_codigo, 
-                            "Descripcion": nuevo_nombre, 
+                            "Descripcion": nuevo_nombre,
+                            "Insumo": nuevo_nombre,  # <--- ESTO ARREGLA EL ERROR 23502
                             "Unidad": nueva_unidad,
                             "Cantidad": nueva_cant, 
                             "stock_minimo": nuevo_min
@@ -263,13 +266,19 @@ elif opcion == "Insumos":
                         time.sleep(1)
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Error al guardar: {e}")
+                        # Si falla, intentamos sin 'Insumo' (por si acaso ya la borraste)
+                        if "column \"Insumo\" of relation \"Insumos\" does not exist" in str(e):
+                             datos_insert.pop("Insumo")
+                             utils.supabase.table("Insumos").insert(datos_insert).execute()
+                             st.success(f"✅ Insumo {nuevo_codigo} agregado.")
+                             st.rerun()
+                        else:
+                            st.error(f"Error al guardar: {e}")
                 else:
                     st.warning("El Código y la Descripción son obligatorios.")
 
     # --- PESTAÑA EDICIÓN MAESTRA ---
     with t2:
-        # AQUÍ ESTABA EL ERROR: QUITAMOS "hidden=True"
         column_config = {
             "id": st.column_config.NumberColumn("ID Sistema", disabled=True, width="small"),
             "codigo": st.column_config.TextColumn("Código SKU", required=True, width="medium", help="Código alfanumérico único"),
@@ -279,7 +288,6 @@ elif opcion == "Insumos":
             "stock_minimo": st.column_config.NumberColumn("Mínimo ⚠️", width="small")
         }
         
-        # Mostramos 'codigo' primero
         cols_ver = ["id", "codigo", "Descripcion", "Cantidad", "Unidad", "stock_minimo"]
         for c in cols_ver:
             if c not in df.columns: df[c] = None
@@ -290,7 +298,7 @@ elif opcion == "Insumos":
             num_rows="dynamic",
             use_container_width=True,
             height=500,
-            key="editor_insumos_codigos"
+            key="editor_insumos_codigos_v2"
         )
 
         if st.button("💾 Guardar Cambios en Inventario"):
@@ -299,9 +307,11 @@ elif opcion == "Insumos":
             
             for index, row in edited_df.iterrows():
                 try:
+                    # Al editar, también actualizamos ambas columnas para mantener consistencia
                     datos = {
                         "codigo": row["codigo"], 
                         "Descripcion": row["Descripcion"],
+                        "Insumo": row["Descripcion"], # Espejo al editar también
                         "Cantidad": row["Cantidad"],
                         "Unidad": row["Unidad"],
                         "stock_minimo": row["stock_minimo"]
@@ -312,7 +322,14 @@ elif opcion == "Insumos":
                     else:
                         utils.supabase.table("Insumos").insert(datos).execute()
                 except Exception as e:
-                    pass
+                    # Fallback si falla el espejo
+                    try:
+                        datos.pop("Insumo")
+                        if pd.notna(row["id"]):
+                            utils.supabase.table("Insumos").update(datos).eq("id", row["id"]).execute()
+                        else:
+                            utils.supabase.table("Insumos").insert(datos).execute()
+                    except: pass
                 
                 bar.progress((index+1)/total)
             
