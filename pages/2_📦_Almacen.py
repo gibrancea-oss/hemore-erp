@@ -20,80 +20,125 @@ opcion_almacen = st.sidebar.radio(
 st.title(f"Control de {opcion_almacen.split(' (')[0]}")
 
 # ==================================================
-# 🧱 OPCIÓN 1: GESTIÓN DE INSUMOS
+# 🧱 OPCIÓN 1: GESTIÓN DE INSUMOS (MEJORADO)
 # ==================================================
 if "Insumos" in opcion_almacen:
     # 1. Cargar Datos
     try:
         response_ins = supabase.table("Insumos").select("*").order("id").execute()
         df_ins = pd.DataFrame(response_ins.data)
-    except: df_ins = pd.DataFrame()
-
-    tab_mov, tab_exist = st.tabs(["📝 Registrar Movimientos (Entradas/Salidas)", "📊 Existencias en Tiempo Real"])
-
-    # --- PESTAÑA 1: MOVIMIENTOS ---
-    with tab_mov:
-        st.subheader("Operación de Inventario")
         
+        # Cargar Personal para las entregas
+        df_personal = pd.DataFrame(supabase.table("Personal").select("nombre").eq("activo", True).execute().data)
+        lista_personal = df_personal['nombre'].tolist() if not df_personal.empty else []
+        
+    except: 
+        df_ins = pd.DataFrame()
+        lista_personal = []
+
+    # --- TABS: OPERACIÓN, EXISTENCIAS, HISTORIAL ---
+    tab_op, tab_exist, tab_hist = st.tabs(["📝 Registrar Movimientos", "📊 Existencias", "📜 Historial"])
+
+    # --- PESTAÑA 1: REGISTRAR MOVIMIENTOS ---
+    with tab_op:
         if df_ins.empty:
-            st.warning("No hay insumos registrados. Ve a Configuración para agregar.")
+            st.warning("No hay insumos registrados.")
         else:
             # Limpieza de datos
             if "codigo" not in df_ins.columns: df_ins["codigo"] = df_ins["id"].astype(str)
             if "Descripcion" not in df_ins.columns: df_ins["Descripcion"] = "Sin Nombre"
             
-            c_form, _ = st.columns([1, 1]) 
+            # Selector de Tipo de Movimiento
+            tipo_operacion = st.radio("¿Qué deseas hacer?", ["📤 Entrega a Operador (Salida)", "📥 Re-Stock (Entrada)"], horizontal=True)
+            
+            st.divider()
+            
+            c_form, c_info = st.columns([2, 1])
+            
             with c_form:
-                st.markdown("##### Selecciona el producto:")
-                lista_insumos = [f"{row['codigo']} - {row['Descripcion']}" for i, row in df_ins.iterrows()]
-                seleccion = st.selectbox("Buscar Insumo", lista_insumos)
+                # BUSCADOR INTELIGENTE (Combina Código y Descripción)
+                lista_busqueda = [f"{row['codigo']} | {row['Descripcion']}" for i, row in df_ins.iterrows()]
+                seleccion = st.selectbox("🔍 Buscar Insumo (Escribe código o nombre)", lista_busqueda)
                 
-                # Obtener datos
-                codigo_sel = seleccion.split(" - ")[0]
+                # Recuperar datos del insumo seleccionado
+                codigo_sel = seleccion.split(" | ")[0]
                 item_actual = df_ins[df_ins["codigo"] == codigo_sel].iloc[0]
                 
-                st.info(f"📦 En Stock: **{item_actual['Cantidad']} {item_actual['Unidad']}**")
-                
-                st.markdown("##### Detalle del Movimiento:")
-                c_cant, c_motivo = st.columns([1, 2])
-                cantidad_mov = c_cant.number_input("Cantidad", min_value=1.0, step=1.0)
-                motivo = c_motivo.text_input("Motivo / Referencia", placeholder="Ej. Lote 5 / Factura A1")
-                
-                col_salida, col_entrada = st.columns(2)
-                
-                # BOTÓN SALIDA
-                if col_salida.button("📉 SALIDA (Consumo)", type="primary", use_container_width=True):
-                    if item_actual['Cantidad'] >= cantidad_mov:
-                        nuevo_stock = item_actual['Cantidad'] - cantidad_mov
+                cant_mov = st.number_input("Cantidad", min_value=1.0, step=1.0, value=1.0)
+
+                # LÓGICA SEGÚN EL TIPO DE MOVIMIENTO
+                if "Entrega" in tipo_operacion:
+                    # ES UNA SALIDA
+                    responsable = st.selectbox("👤 ¿A quién se le entrega?", lista_personal, placeholder="Escribe el nombre...")
+                    
+                    if st.button("Confirmar Entrega (Salida)", type="primary"):
+                        if item_actual['Cantidad'] >= cant_mov:
+                            if responsable:
+                                nuevo_stock = item_actual['Cantidad'] - cant_mov
+                                try:
+                                    # 1. Restar Stock
+                                    supabase.table("Insumos").update({"Cantidad": nuevo_stock}).eq("id", int(item_actual['id'])).execute()
+                                    
+                                    # 2. Guardar Historial
+                                    supabase.table("Historial_Insumos").insert({
+                                        "fecha": datetime.now().strftime('%Y-%m-%d %H:%M'),
+                                        "codigo": item_actual['codigo'],
+                                        "descripcion": item_actual['Descripcion'],
+                                        "tipo_movimiento": "Salida",
+                                        "cantidad": cant_mov,
+                                        "responsable": responsable
+                                    }).execute()
+                                    
+                                    st.success(f"✅ Entregado a {responsable}. Stock restante: {nuevo_stock}")
+                                    time.sleep(1)
+                                    st.rerun()
+                                except Exception as e: st.error(f"Error: {e}")
+                            else:
+                                st.warning("Debes seleccionar a quién se le entrega.")
+                        else:
+                            st.error(f"⛔ Stock insuficiente. Solo tienes {item_actual['Cantidad']}.")
+                            
+                else:
+                    # ES UNA ENTRADA (RE-STOCK)
+                    st.info("ℹ️ Estás registrando una entrada de material al almacén.")
+                    if st.button("Confirmar Re-Stock (Entrada)"):
+                        nuevo_stock = item_actual['Cantidad'] + cant_mov
                         try:
+                            # 1. Sumar Stock
                             supabase.table("Insumos").update({"Cantidad": nuevo_stock}).eq("id", int(item_actual['id'])).execute()
-                            st.success(f"✅ Salida registrada. Stock Nuevo: {nuevo_stock}")
+                            
+                            # 2. Guardar Historial
+                            supabase.table("Historial_Insumos").insert({
+                                "fecha": datetime.now().strftime('%Y-%m-%d %H:%M'),
+                                "codigo": item_actual['codigo'],
+                                "descripcion": item_actual['Descripcion'],
+                                "tipo_movimiento": "Re-stock",
+                                "cantidad": cant_mov,
+                                "responsable": "Almacén"
+                            }).execute()
+                            
+                            st.success(f"✅ Stock actualizado. Nuevo total: {nuevo_stock}")
                             time.sleep(1)
                             st.rerun()
                         except Exception as e: st.error(f"Error: {e}")
-                    else:
-                        st.error("⛔ Stock insuficiente.")
 
-                # BOTÓN ENTRADA
-                if col_entrada.button("📈 ENTRADA (Surtido)", use_container_width=True):
-                    nuevo_stock = item_actual['Cantidad'] + cantidad_mov
-                    try:
-                        supabase.table("Insumos").update({"Cantidad": nuevo_stock}).eq("id", int(item_actual['id'])).execute()
-                        st.success(f"✅ Entrada registrada. Stock Nuevo: {nuevo_stock}")
-                        time.sleep(1)
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+            # Tarjeta Informativa Lateral
+            with c_info:
+                st.metric(label="Stock Actual", value=f"{item_actual['Cantidad']} {item_actual['Unidad']}")
+                if item_actual['Cantidad'] <= item_actual['stock_minimo']:
+                    st.error(f"⚠️ Stock Bajo (Mín: {item_actual['stock_minimo']})")
+                else:
+                    st.success("Stock Saludable")
 
     # --- PESTAÑA 2: EXISTENCIAS ---
     with tab_exist:
-        st.subheader("Inventario Actualizado")
+        st.subheader("Inventario en Tiempo Real")
         if not df_ins.empty:
             cols_show = ["codigo", "Descripcion", "Cantidad", "Unidad", "stock_minimo"]
             for c in cols_show:
                 if c not in df_ins.columns: df_ins[c] = None
             
-            filtro_ins = st.text_input("🔍 Buscar en inventario...", placeholder="Código o Descripción")
+            filtro_ins = st.text_input("🔍 Filtrar tabla...", placeholder="Código o Descripción")
             df_show = df_ins[cols_show].copy()
             
             if filtro_ins:
@@ -112,11 +157,31 @@ if "Insumos" in opcion_almacen:
                 },
                 hide_index=True
             )
-        else:
-            st.info("No hay datos para mostrar.")
+
+    # --- PESTAÑA 3: HISTORIAL (NUEVA) ---
+    with tab_hist:
+        st.subheader("📜 Historial de Movimientos")
+        try:
+            # Traer los últimos 50 movimientos
+            historial = pd.DataFrame(supabase.table("Historial_Insumos").select("*").order("id", desc=True).limit(50).execute().data)
+            
+            if not historial.empty:
+                st.dataframe(
+                    historial[["fecha", "codigo", "descripcion", "tipo_movimiento", "cantidad", "responsable"]],
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "tipo_movimiento": st.column_config.TextColumn("Tipo", width="small"),
+                        "responsable": st.column_config.TextColumn("Entregado a / Fuente", width="medium")
+                    }
+                )
+            else:
+                st.info("Aún no hay movimientos registrados.")
+        except:
+            st.info("La tabla de historial está vacía o no se ha creado.")
 
 # ==================================================
-# 🔧 OPCIÓN 2: CONTROL DE HERRAMIENTAS (CORREGIDO)
+# 🔧 OPCIÓN 2: CONTROL DE HERRAMIENTAS (INTACTO)
 # ==================================================
 elif "Herramientas" in opcion_almacen:
     # 1. Cargar Datos
@@ -129,79 +194,60 @@ elif "Herramientas" in opcion_almacen:
         df_her = pd.DataFrame()
         lista_personal = []
 
-    # --- 🛡️ BLINDAJE ANTI-ERRORES (AQUÍ ESTÁ LA SOLUCIÓN) ---
-    # Aseguramos que existan las columnas clave en el DataFrame aunque no vengan de la DB
-    if "Responsable" not in df_her.columns: df_her["Responsable"] = "Bodega"
-    df_her["Responsable"] = df_her["Responsable"].fillna("Bodega")
-    
-    if "codigo" not in df_her.columns: df_her["codigo"] = ""
-    if "marca" not in df_her.columns: df_her["marca"] = ""
-    if "Herramienta" not in df_her.columns: df_her["Herramienta"] = "Sin Nombre"
-    if "id" not in df_her.columns: df_her["id"] = 0
+    if not df_her.empty:
+        if "Responsable" not in df_her.columns: df_her["Responsable"] = "Bodega"
+        df_her["Responsable"] = df_her["Responsable"].fillna("Bodega")
+        if "codigo" not in df_her.columns: df_her["codigo"] = ""
+        if "marca" not in df_her.columns: df_her["marca"] = ""
+        if "Herramienta" not in df_her.columns: df_her["Herramienta"] = "Sin Nombre"
+        if "id" not in df_her.columns: df_her["id"] = 0
 
-    # Ahora filtramos con seguridad
     bodega = df_her[df_her['Responsable'] == 'Bodega']
     prestadas = df_her[df_her['Responsable'] != 'Bodega']
 
-    # --- TABS SEPARADOS ---
     tab_mov_h, tab_exist_h = st.tabs(["📝 Registrar Movimientos (Préstamo/Devolución)", "📋 Existencias en Tiempo Real"])
 
-    # --- PESTAÑA 1: MOVIMIENTOS ---
     with tab_mov_h:
         c1, c2 = st.columns(2)
-
-        # --- PANEL IZQUIERDO: PRESTAR ---
         with c1:
             st.info("📤 **SALIDA DE HERRAMIENTA**")
             with st.form("prestar"):
                 l_bodega = []
                 if not bodega.empty:
                     l_bodega = [f"{r['id']} | {r['codigo']} - {r['Herramienta']} ({r['marca']})" for i, r in bodega.iterrows()]
-                
                 sel_p = st.selectbox("Seleccionar Herramienta (En Bodega)", l_bodega)
                 resp = st.selectbox("Entregar a:", lista_personal)
-                
                 if st.form_submit_button("Confirmar Préstamo", type="primary"):
                     if sel_p and resp:
                         id_h = int(sel_p.split(" | ")[0])
-                        # Intentamos actualizar en la base de datos
                         try:
                             supabase.table("Herramientas").update({"Responsable": resp}).eq("id", id_h).execute()
-                            # Historial
                             try:
                                 supabase.table("Historial_Herramientas").insert({
                                     "Fecha_Hora": datetime.now().strftime('%Y-%m-%d %H:%M'),
-                                    "Herramienta": sel_p.split(" | ")[1], 
-                                    "Movimiento": "Préstamo", "Responsable": resp
+                                    "Herramienta": sel_p.split(" | ")[1], "Movimiento": "Préstamo", "Responsable": resp
                                 }).execute()
                             except: pass
-                            
                             st.success(f"✅ Entregado a {resp}")
                             time.sleep(1)
                             st.rerun()
-                        except Exception as e:
-                            st.error(f"Error al guardar (Verifica que la columna 'Responsable' exista en Supabase): {e}")
+                        except Exception as e: st.error(f"Error: {e}")
                     else: st.warning("Datos incompletos.")
 
-        # --- PANEL DERECHO: DEVOLVER ---
         with c2:
             st.warning("📥 **DEVOLUCIÓN A BODEGA**")
             with st.form("devolver"):
                 l_prest = []
                 if not prestadas.empty:
                     l_prest = [f"{r['id']} | {r['codigo']} - {r['Herramienta']} (Tiene: {r['Responsable']})" for i, r in prestadas.iterrows()]
-                    
                 sel_d = st.selectbox("Seleccionar Herramienta (Prestada)", l_prest)
                 estado_dev = st.selectbox("Estado al devolver", ["BUEN ESTADO", "MAL ESTADO", "EN REPARACIÓN"])
-                
                 if st.form_submit_button("Confirmar Devolución"):
                     if sel_d:
                         id_h = int(sel_d.split(" | ")[0])
                         nombre_clean = sel_d.split(" | ")[1]
-                        
                         try:
                             supabase.table("Herramientas").update({"Responsable": "Bodega", "Estado": estado_dev}).eq("id", id_h).execute()
-                            # Historial
                             try:
                                 supabase.table("Historial_Herramientas").insert({
                                     "Fecha_Hora": datetime.now().strftime('%Y-%m-%d %H:%M'),
@@ -209,33 +255,20 @@ elif "Herramientas" in opcion_almacen:
                                     "Responsable": "Bodega", "Detalle": estado_dev
                                 }).execute()
                             except: pass
-                            
                             st.success("✅ Devuelto a Bodega")
                             time.sleep(1)
                             st.rerun()
-                        except Exception as e:
-                            st.error(f"Error al guardar: {e}")
+                        except Exception as e: st.error(f"Error: {e}")
                     else: st.info("No hay devoluciones pendientes.")
 
-    # --- PESTAÑA 2: EXISTENCIAS ---
     with tab_exist_h:
         st.subheader("Ubicación de Activos")
-        
         filtro_h = st.text_input("🔍 Rastrear herramienta...", placeholder="Código, Nombre o Responsable")
-        
         df_view = df_her.copy()
         if filtro_h and not df_view.empty:
             mask = df_view.astype(str).apply(lambda x: x.str.contains(filtro_h, case=False)).any(axis=1)
             df_view = df_view[mask]
-
         cols_her_show = ["codigo", "Herramienta", "marca", "Responsable", "Estado", "descripcion"]
-        # Aseguramos columnas visuales
         for c in cols_her_show:
             if c not in df_view.columns: df_view[c] = None
-
-        st.dataframe(
-            df_view, 
-            use_container_width=True,
-            column_order=cols_her_show,
-            hide_index=True
-        )
+        st.dataframe(df_view, use_container_width=True, column_order=cols_her_show, hide_index=True)
