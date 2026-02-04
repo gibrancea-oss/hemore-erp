@@ -17,18 +17,17 @@ supabase = utils.supabase
 # --- FUNCIÓN CORREGIDA PARA DESCARGAR EXCEL ---
 def convertir_df_a_excel(df):
     output = io.BytesIO()
+    # USAMOS EL MOTOR POR DEFECTO PARA EVITAR ERRORES
     with pd.ExcelWriter(output) as writer:
-        df.to_excel(writer, index=False, sheet_name='Reporte')
+        df.to_excel(writer, index=False, sheet_name='Recibo')
     processed_data = output.getvalue()
     return processed_data
 
 # --- FUNCIÓN PARA FILTROS DE FECHA ---
 def aplicar_filtro_fechas(df, columna_fecha, filtro_seleccionado):
     if df.empty: return df
-    
     df[columna_fecha] = pd.to_datetime(df[columna_fecha])
     hoy = pd.Timestamp.now().normalize()
-    
     if filtro_seleccionado == "Hoy":
         df = df[df[columna_fecha].dt.date == hoy.date()]
     elif filtro_seleccionado == "Ayer":
@@ -48,7 +47,6 @@ def aplicar_filtro_fechas(df, columna_fecha, filtro_seleccionado):
         inicio = hoy - timedelta(days=60)
         fin = hoy - timedelta(days=30)
         df = df[(df[columna_fecha] >= inicio) & (df[columna_fecha] < fin)]
-        
     return df
 
 # ==========================================
@@ -66,11 +64,9 @@ st.title(f"Control de {opcion_almacen.split(' (')[0]}")
 # 🧱 OPCIÓN 1: GESTIÓN DE INSUMOS
 # ==================================================
 if "Insumos" in opcion_almacen:
-    # 1. Cargar Datos
     try:
         response_ins = supabase.table("Insumos").select("*").order("id").execute()
         df_ins = pd.DataFrame(response_ins.data)
-        
         df_personal = pd.DataFrame(supabase.table("Personal").select("nombre").eq("activo", True).execute().data)
         lista_personal = df_personal['nombre'].tolist() if not df_personal.empty else []
     except: 
@@ -89,14 +85,12 @@ if "Insumos" in opcion_almacen:
             
             tipo_operacion = st.radio("¿Qué deseas hacer?", ["📤 Entrega a Operador (Salida)", "📥 Re-Stock (Entrada)"], horizontal=True)
             st.divider()
-            
             c_form, c_info = st.columns([2, 1])
             with c_form:
                 lista_busqueda = [f"{row['codigo']} | {row['Descripcion']}" for i, row in df_ins.iterrows()]
                 seleccion = st.selectbox("🔍 Buscar Insumo (Escribe código o nombre)", lista_busqueda)
                 codigo_sel = seleccion.split(" | ")[0]
                 item_actual = df_ins[df_ins["codigo"] == codigo_sel].iloc[0]
-                
                 cant_mov = st.number_input("Cantidad", min_value=1.0, step=1.0, value=1.0)
 
                 if "Entrega" in tipo_operacion:
@@ -160,19 +154,12 @@ if "Insumos" in opcion_almacen:
                 if c not in df_ins.columns: df_ins[c] = None
             try:
                 excel_data = convertir_df_a_excel(df_ins[cols_show])
-                c_down.download_button(
-                    label="📥 Descargar Existencias",
-                    data=excel_data,
-                    file_name=f"Existencias_Insumos_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
+                c_down.download_button(label="📥 Descargar Existencias", data=excel_data, file_name=f"Existencias_Insumos_{datetime.now().strftime('%d-%m-%Y')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
             except: pass
             filtro_ins = st.text_input("🔍 Filtrar tabla...", placeholder="Código o Descripción")
             df_show = df_ins[cols_show].copy()
             if filtro_ins:
-                mask = (df_show["codigo"].astype(str).str.contains(filtro_ins, case=False, na=False) | 
-                        df_show["Descripcion"].astype(str).str.contains(filtro_ins, case=False, na=False))
+                mask = (df_show["codigo"].astype(str).str.contains(filtro_ins, case=False, na=False) | df_show["Descripcion"].astype(str).str.contains(filtro_ins, case=False, na=False))
                 df_show = df_show[mask]
             st.dataframe(df_show, use_container_width=True, column_config={"stock_minimo": st.column_config.NumberColumn("Mínimo"), "Descripcion": st.column_config.TextColumn("Descripción", width="large")}, hide_index=True)
         else: st.info("No hay datos.")
@@ -201,7 +188,7 @@ if "Insumos" in opcion_almacen:
                 if not df_filtrado.empty:
                     try:
                         excel_hist = convertir_df_a_excel(df_filtrado[cols_h])
-                        st.download_button(label="📥 Descargar Reporte Filtrado", data=excel_hist, file_name=f"Reporte_Movimientos_{opcion_fecha}_{datetime.now().strftime('%d-%m')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                        st.download_button(label="📥 Descargar Reporte Filtrado", data=excel_hist, file_name=f"Reporte_Movimientos_{opcion_fecha}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                     except: pass
             else: st.info("Aún no hay movimientos.")
         except: st.info("No se pudo cargar el historial.")
@@ -335,18 +322,23 @@ elif "Herramientas" in opcion_almacen:
         except: st.info("No se pudo cargar el historial.")
 
 # ==================================================
-# 📑 OPCIÓN 3: RECIBOS DE ENTREGA OC (NUEVO)
+# 📑 OPCIÓN 3: RECIBOS DE ENTREGA OC (COMO TU IMAGEN)
 # ==================================================
 elif "Recibos" in opcion_almacen:
     st.markdown("### 📑 Generador de Recibos de Entrega (OC)")
     
-    # Cargar Personal
+    # Cargar Datos (Personal y Clientes)
     try:
         df_personal = pd.DataFrame(supabase.table("Personal").select("nombre").eq("activo", True).execute().data)
         lista_personal = df_personal['nombre'].tolist() if not df_personal.empty else []
-    except: lista_personal = []
+        
+        df_clientes = pd.DataFrame(supabase.table("Clientes").select("nombre").execute().data)
+        lista_clientes = df_clientes['nombre'].tolist() if not df_clientes.empty else []
+    except: 
+        lista_personal = []
+        lista_clientes = []
 
-    # --- PESTAÑAS: NUEVO REGISTRO / IMPRIMIR ---
+    # --- PESTAÑAS ---
     tab_nuevo, tab_imprimir = st.tabs(["➕ Nuevo Registro en OC", "🖨️ Visualizar e Imprimir Recibo"])
 
     # 1. REGISTRO
@@ -355,24 +347,30 @@ elif "Recibos" in opcion_almacen:
             st.subheader("Datos de la Entrega")
             
             c1, c2 = st.columns(2)
-            oc = c1.text_input("Orden de Compra (OC)", placeholder="Ej. OC-2026-050")
+            oc = c1.text_input("Orden de Compra (O.C.)", placeholder="Ej. 0")
             fecha_entrega = c2.date_input("Fecha de Entrega", value=datetime.now().date())
             
-            c3, c4, c5 = st.columns(3)
-            codigo = c3.text_input("Código de Producto")
-            color = c4.text_input("Color")
-            cantidad = c5.number_input("Cantidad", min_value=1.0, step=1.0)
+            # --- SELECCIONAR CLIENTE (IGUAL A LA IMAGEN) ---
+            cliente_seleccionado = st.selectbox("Cliente (Destino):", lista_clientes, index=None, placeholder="Selecciona el cliente...")
             
-            descripcion = st.text_input("Descripción del Producto")
+            st.divider()
+            st.write("Detalle del Producto:")
+            c3, c4, c5 = st.columns([1, 1, 1])
+            codigo = c3.text_input("Código")
+            color = c4.text_input("Color", value="N/A")
+            cantidad = c5.number_input("Cantidad", min_value=0.0, step=1.0)
             
-            usuario = st.selectbox("Recibido / Registrado por:", lista_personal)
+            descripcion = st.text_input("Descripción")
+            
+            usuario = st.selectbox("Registrado por:", lista_personal)
 
             if st.form_submit_button("Guardar Registro", type="primary"):
-                if oc and codigo and cantidad:
+                if oc and cantidad and cliente_seleccionado:
                     try:
                         datos = {
                             "fecha": fecha_entrega.isoformat(),
                             "oc": oc,
+                            "cliente": cliente_seleccionado,
                             "codigo": codigo,
                             "descripcion": descripcion,
                             "color": color,
@@ -380,55 +378,74 @@ elif "Recibos" in opcion_almacen:
                             "usuario": usuario
                         }
                         supabase.table("Recibos_OC").insert(datos).execute()
-                        st.success(f"✅ Item agregado a la OC: {oc}")
+                        st.success(f"✅ Agregado a O.C. {oc}")
                         time.sleep(1)
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Error al guardar (Verifica haber creado la tabla SQL): {e}")
+                        st.error(f"Error al guardar: {e}")
                 else:
-                    st.warning("OC, Código y Cantidad son obligatorios.")
+                    st.warning("O.C., Cliente y Cantidad son obligatorios.")
 
-    # 2. IMPRIMIR RECIBO
+    # 2. IMPRIMIR RECIBO (IGUAL A TU IMAGEN)
     with tab_imprimir:
-        st.write("Selecciona una OC para generar su recibo de entrega.")
+        st.write("Selecciona una OC para generar su recibo.")
         
-        # Cargar Recibos Existentes
         try:
             response_recibos = supabase.table("Recibos_OC").select("*").order("id", desc=True).execute()
             df_recibos = pd.DataFrame(response_recibos.data)
         except: df_recibos = pd.DataFrame()
 
         if not df_recibos.empty:
-            # Selector de OC (Valores únicos)
+            # Filtro por OC
             lista_ocs = df_recibos["oc"].unique().tolist()
-            oc_seleccionada = st.selectbox("Seleccionar Orden de Compra:", lista_ocs)
+            oc_sel = st.selectbox("Seleccionar Orden de Compra:", lista_ocs)
             
-            # Filtrar por la OC seleccionada
-            df_filtro_oc = df_recibos[df_recibos["oc"] == oc_seleccionada].copy()
+            # Datos Filtrados
+            df_filtro = df_recibos[df_recibos["oc"] == oc_sel].copy()
             
-            st.divider()
-            
-            # Encabezado del Recibo Visual
-            st.markdown(f"""
-            #### 🧾 Recibo de Entrega
-            **Orden de Compra:** {oc_seleccionada}  
-            **Fecha de Emisión:** {datetime.now().strftime('%d/%m/%Y')}
-            """)
-            
-            # Tabla Visual
-            cols_recibo = ["codigo", "descripcion", "color", "cantidad", "fecha", "usuario"]
-            st.dataframe(df_filtro_oc[cols_recibo], use_container_width=True, hide_index=True)
-            
-            # Botón Descargar Excel (Formato Recibo)
-            excel_recibo = convertir_df_a_excel(df_filtro_oc[cols_recibo])
-            
-            st.download_button(
-                label=f"🖨️ Descargar Recibo {oc_seleccionada} (Excel)",
-                data=excel_recibo,
-                file_name=f"Recibo_Entrega_{oc_seleccionada}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary"
-            )
+            if not df_filtro.empty:
+                # Datos de Cabecera (Tomamos del primer registro)
+                cliente_actual = df_filtro.iloc[0]["cliente"] if "cliente" in df_filtro.columns else "Desconocido"
+                fecha_actual = df_filtro.iloc[0]["fecha"]
+                folio_actual = df_filtro.iloc[0]["id"] # Usamos el ID como Folio
+
+                st.divider()
+                
+                # --- VISUALIZACIÓN TIPO RECIBO ---
+                st.markdown(f"""
+                ### 🧾 HEMORE INDUSTRIAS - Recibo de Entrega
+                **Folio:** {folio_actual} &nbsp;&nbsp;&nbsp; **Fecha:** {fecha_actual}
+                
+                ---
+                **Proveedor:** HEMORE INDUSTRIAS  
+                **Cliente:** {cliente_actual}
+                """)
+                
+                # TABLA EXACTA DE LA IMAGEN
+                cols_imagen = ["oc", "codigo", "descripcion", "color", "cantidad"]
+                # Renombrar para que se vea bonito
+                df_view = df_filtro[cols_imagen].rename(columns={
+                    "oc": "O.C.",
+                    "codigo": "Código",
+                    "descripcion": "Descripción",
+                    "color": "Color",
+                    "cantidad": "Cantidad"
+                })
+                
+                st.dataframe(df_view, use_container_width=True, hide_index=True)
+                
+                st.write("**Observaciones:** _______________________________________")
+                
+                # --- BOTÓN DESCARGAR EXCEL CON FORMATO ---
+                excel_recibo = convertir_df_a_excel(df_view)
+                
+                st.download_button(
+                    label=f"🖨️ Descargar Recibo {oc_sel}",
+                    data=excel_recibo,
+                    file_name=f"Recibo_OC_{oc_sel}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary"
+                )
             
         else:
-            st.info("No hay registros de entregas de OC todavía.")
+            st.info("No hay registros de entregas todavía.")
