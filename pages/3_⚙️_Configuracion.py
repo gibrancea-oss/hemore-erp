@@ -33,7 +33,6 @@ def renderizar_catalogo_generico(nombre_modulo, tabla_db, columnas_visibles, con
             
             for i in range(0, len(claves), 2):
                 c1, c2 = st.columns(2)
-                # Columna 1
                 key1 = claves[i]
                 with c1:
                     if isinstance(config_campos[key1], list):
@@ -41,7 +40,6 @@ def renderizar_catalogo_generico(nombre_modulo, tabla_db, columnas_visibles, con
                     else:
                         datos_a_guardar[key1] = st.text_input(config_campos[key1])
                 
-                # Columna 2 (si existe)
                 if i + 1 < len(claves):
                     key2 = claves[i+1]
                     with c2:
@@ -114,6 +112,12 @@ if opcion == "Personal":
     try:
         response = utils.supabase.table("Personal").select("*").order("id").execute()
         df = pd.DataFrame(response.data)
+        
+        # --- CORRECCIÓN DE ERROR DE FECHA ---
+        # Convertimos el texto de la base de datos a formato FECHA REAL
+        if not df.empty and "fecha_ingreso" in df.columns:
+            df["fecha_ingreso"] = pd.to_datetime(df["fecha_ingreso"], errors='coerce').dt.date
+            
     except: df = pd.DataFrame()
 
     if df.empty:
@@ -162,7 +166,7 @@ if opcion == "Personal":
             "id": st.column_config.NumberColumn(disabled=True, width="small"),
             "nombre": st.column_config.TextColumn("Nombre", width="medium"),
             "puesto": st.column_config.SelectboxColumn("Puesto", options=["Operador", "Supervisor", "Almacén", "Mantenimiento", "Administrativo"]),
-            "fecha_ingreso": st.column_config.DateColumn("Ingreso"),
+            "fecha_ingreso": st.column_config.DateColumn("Ingreso", format="DD/MM/YYYY"),
             "activo": st.column_config.CheckboxColumn("¿Activo?")
         }
         
@@ -184,6 +188,11 @@ if opcion == "Personal":
             for index, row in edited_df.iterrows():
                 try:
                     datos = {c: row[c] for c in cols_reales if c != 'id'}
+                    
+                    # Convertimos la fecha a string para guardarla
+                    if "fecha_ingreso" in datos and datos["fecha_ingreso"]:
+                         datos["fecha_ingreso"] = str(datos["fecha_ingreso"])
+
                     if pd.notna(row["id"]):
                         utils.supabase.table("Personal").update(datos).eq("id", row["id"]).execute()
                     else:
@@ -237,7 +246,6 @@ elif opcion == "Insumos":
                     st.warning("Descripción obligatoria")
 
     with t2:
-        # AQUI ESTA LA MAGIA: Configuramos que la columna 'Nombre' diga 'Descripción'
         column_config = {
             "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
             "Nombre": st.column_config.TextColumn("Descripción del Insumo", width="large", required=True),
