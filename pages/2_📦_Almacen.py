@@ -9,10 +9,11 @@ import utils # Tu archivo de conexión
 st.set_page_config(page_title="Almacén Central", page_icon="📦", layout="wide")
 supabase = utils.supabase 
 
-# --- FUNCIÓN AUXILIAR PARA DESCARGAR EXCEL ---
+# --- FUNCIÓN AUXILIAR PARA DESCARGAR EXCEL (CORREGIDA) ---
 def convertir_df_a_excel(df):
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+    # CAMBIO: Quitamos "engine='xlsxwriter'" para usar el motor por defecto
+    with pd.ExcelWriter(output) as writer:
         df.to_excel(writer, index=False, sheet_name='Reporte')
     processed_data = output.getvalue()
     return processed_data
@@ -185,14 +186,17 @@ if "Insumos" in opcion_almacen:
                 if c not in df_ins.columns: df_ins[c] = None
             
             # Botón Descarga Excel (Existencias)
-            excel_data = convertir_df_a_excel(df_ins[cols_show])
-            c_down.download_button(
-                label="📥 Descargar Existencias",
-                data=excel_data,
-                file_name=f"Existencias_Insumos_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+            try:
+                excel_data = convertir_df_a_excel(df_ins[cols_show])
+                c_down.download_button(
+                    label="📥 Descargar Existencias",
+                    data=excel_data,
+                    file_name=f"Existencias_Insumos_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            except Exception as e:
+                c_down.error("Error creando Excel. Verifica requisitos.")
 
             filtro_ins = st.text_input("🔍 Filtrar tabla...", placeholder="Código o Descripción")
             df_show = df_ins[cols_show].copy()
@@ -204,7 +208,15 @@ if "Insumos" in opcion_almacen:
                 )
                 df_show = df_show[mask]
 
-            st.dataframe(df_show, use_container_width=True, hide_index=True)
+            st.dataframe(
+                df_show, 
+                use_container_width=True,
+                column_config={
+                    "stock_minimo": st.column_config.NumberColumn("Mínimo", help="Nivel de reorden"),
+                    "Descripcion": st.column_config.TextColumn("Descripción", width="large")
+                },
+                hide_index=True
+            )
         else:
             st.info("No hay datos para mostrar.")
 
@@ -251,13 +263,15 @@ if "Insumos" in opcion_almacen:
                 
                 # Botón Descarga Excel (Historial Filtrado)
                 if not df_filtrado.empty:
-                    excel_hist = convertir_df_a_excel(df_filtrado[cols_h])
-                    st.download_button(
-                        label="📥 Descargar Reporte Filtrado",
-                        data=excel_hist,
-                        file_name=f"Reporte_Movimientos_{opcion_fecha}_{datetime.now().strftime('%d-%m')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                    try:
+                        excel_hist = convertir_df_a_excel(df_filtrado[cols_h])
+                        st.download_button(
+                            label="📥 Descargar Reporte Filtrado",
+                            data=excel_hist,
+                            file_name=f"Reporte_Movimientos_{opcion_fecha}_{datetime.now().strftime('%d-%m')}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    except: pass
             else:
                 st.info("Aún no hay movimientos registrados.")
         except Exception as e:
@@ -374,16 +388,18 @@ elif "Herramientas" in opcion_almacen:
         for c in cols_her_show:
             if c not in df_view.columns: df_view[c] = None
         
-        # Botón Descarga Excel (Herramientas Actuales)
+        # Botón Descarga Excel
         if not df_view.empty:
-            excel_her = convertir_df_a_excel(df_view[cols_her_show])
-            c_down_h.download_button(
-                label="📥 Descargar Inventario",
-                data=excel_her,
-                file_name=f"Inventario_Herramientas_{datetime.now().strftime('%d-%m')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+            try:
+                excel_her = convertir_df_a_excel(df_view[cols_her_show])
+                c_down_h.download_button(
+                    label="📥 Descargar Inventario",
+                    data=excel_her,
+                    file_name=f"Inventario_Herramientas_{datetime.now().strftime('%d-%m')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            except: pass
             
         st.dataframe(df_view[cols_her_show], use_container_width=True, hide_index=True)
 
@@ -426,13 +442,15 @@ elif "Herramientas" in opcion_almacen:
                 
                 # Botón Descarga Excel (Historial Filtrado)
                 if not df_filtrado_h.empty:
-                    excel_hist_h = convertir_df_a_excel(df_filtrado_h[cols_hh])
-                    st.download_button(
-                        label="📥 Descargar Reporte Historial",
-                        data=excel_hist_h,
-                        file_name=f"Reporte_Prestamos_{opcion_fecha_h}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                    try:
+                        excel_hist_h = convertir_df_a_excel(df_filtrado_h[cols_hh])
+                        st.download_button(
+                            label="📥 Descargar Reporte Historial",
+                            data=excel_hist_h,
+                            file_name=f"Reporte_Prestamos_{opcion_fecha_h}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    except: pass
 
             else:
                 st.info("No hay historial de movimientos.")
