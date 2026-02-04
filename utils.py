@@ -1,41 +1,27 @@
 import streamlit as st
-from supabase import create_client
-import pandas as pd
+from supabase import create_client, Client
 
-# --- CONEXIÓN PRINCIPAL ---
+# 1. Configuración de Conexión a Supabase
+# (Asegúrate de que tus st.secrets tengan estas claves)
 @st.cache_resource
 def init_connection():
-    try:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
-        return create_client(url, key)
-    except Exception as e:
-        return None
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
-# ESTA ES LA LINEA QUE FALTA Y QUE ARREGLA EL ERROR:
-# Creamos la variable 'supabase' para que los otros archivos la puedan usar
+# Inicializamos la variable global de conexión
 supabase = init_connection()
 
-# --- FUNCIONES DE AYUDA (CACHÉ) ---
-# Esto ayuda a que el sistema no sea lento con 50 usuarios
-@st.cache_data(ttl=60)
-def cargar_datos(tabla):
-    if not supabase: return pd.DataFrame()
-    try:
-        response = supabase.table(tabla).select("*").execute()
-        return pd.DataFrame(response.data)
-    except Exception as e:
-        return pd.DataFrame()
-
-def limpiar_cache():
-    st.cache_data.clear()
-# --- AGREGAR AL FINAL DE utils.py ---
-
-def cargar_estilos():
-    # Función parche para evitar el error en Home.py
-    import streamlit as st
-    st.markdown("""<style>.main {padding-top: 2rem;}</style>""", unsafe_allow_html=True)
-
+# 2. Función de Seguridad (EL CANDADO)
 def validar_login():
-    # Función parche por si alguna página antigua la llama
-    pass
+    """
+    Esta función se pone al principio de cada página.
+    Si el usuario no ha iniciado sesión, DETIENE todo y le pide ir al Home.
+    """
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+
+    if not st.session_state["authenticated"]:
+        st.warning("🔒 Acceso Bloqueado. Debes iniciar sesión primero.")
+        st.info("Ve a la página de **Inicio (Home)** para ingresar tu contraseña.")
+        st.stop() # <--- ESTO ES LO IMPORTANTE: Frena la carga de la página
