@@ -4,6 +4,7 @@ import utils # Tu archivo de conexión
 import time
 import datetime
 
+# CONFIGURACIÓN DE PÁGINA: MODO "WIDE" (Usa todo el ancho de la pantalla)
 st.set_page_config(page_title="Configuración Master", page_icon="⚙️", layout="wide")
 
 # --- FUNCIÓN INTELIGENTE (Para Clientes, Proveedores y Herramientas) ---
@@ -99,7 +100,7 @@ opcion = st.sidebar.radio(
 )
 
 # ==========================================
-# 1. PERSONAL
+# 1. PERSONAL (KARDEX COMPLETO AJUSTADO)
 # ==========================================
 if opcion == "Personal":
     st.markdown("### 👥 Gestión de Recursos Humanos")
@@ -149,16 +150,17 @@ if opcion == "Personal":
                     st.warning("Nombre obligatorio")
 
     with t2:
+        # AJUSTE VISUAL PARA QUE QUEPA TODO: USAMOS "small" O "None" (AUTO)
         column_config = {
             "id": st.column_config.NumberColumn(disabled=True, width="small"),
-            "nombre": st.column_config.TextColumn("Nombre", width="medium"),
-            "puesto": st.column_config.SelectboxColumn("Puesto", options=["Operador", "Supervisor", "Almacén", "Mantenimiento", "Administrativo"], width="medium"),
+            "nombre": st.column_config.TextColumn("Nombre", width=None), # Auto ajuste
+            "puesto": st.column_config.SelectboxColumn("Puesto", options=["Operador", "Supervisor", "Almacén", "Mantenimiento", "Administrativo"], width="small"),
             "fecha_ingreso": st.column_config.DateColumn("Ingreso", format="DD/MM/YYYY", width="small"),
-            "activo": st.column_config.CheckboxColumn("¿Activo?", width="small"),
+            "activo": st.column_config.CheckboxColumn("Activo", width="small"),
             "anio_nacimiento": st.column_config.TextColumn("Año", width="small"),
-            "domicilio": st.column_config.TextColumn("Domicilio", width="large"),
-            "curp": st.column_config.TextColumn("CURP", width="medium"),
-            "rfc": st.column_config.TextColumn("RFC", width="medium")
+            "domicilio": st.column_config.TextColumn("Domicilio", width="medium"), # Reducido de large a medium
+            "curp": st.column_config.TextColumn("CURP", width="small"),
+            "rfc": st.column_config.TextColumn("RFC", width="small")
         }
         
         cols_ver = ["id", "nombre", "puesto", "anio_nacimiento", "domicilio", "curp", "rfc", "fecha_ingreso", "activo"]
@@ -168,7 +170,7 @@ if opcion == "Personal":
             df[cols_reales],
             column_config=column_config,
             num_rows="dynamic",
-            use_container_width=True,
+            use_container_width=True, # ESTO ESTIRA LA TABLA AL ANCHO DE PANTALLA
             key="editor_personal"
         )
 
@@ -194,7 +196,7 @@ if opcion == "Personal":
             st.rerun()
 
 # ==========================================
-# 2. INSUMOS (CON BUSCADOR Y ANTI-DUPLICADOS)
+# 2. INSUMOS (INVENTARIO MAESTRO COMPACTO)
 # ==========================================
 elif opcion == "Insumos":
     lista_unidades = ["Pzas", "Kg", "Lts", "Mts", "Cajas", "Paquetes", "Rollos", "Juegos", "Botes", "Galones"]
@@ -206,7 +208,7 @@ elif opcion == "Insumos":
         response = utils.supabase.table("Insumos").select("*").order("id").execute()
         df = pd.DataFrame(response.data)
         
-        # --- LIMPIEZA ---
+        # --- LIMPIEZA AUTOMÁTICA ---
         if not df.empty:
             if "Descripcion" not in df.columns: df["Descripcion"] = None
             for col_sucia in ["Insumo", "nombre", "Nombre"]:
@@ -232,7 +234,7 @@ elif opcion == "Insumos":
 
     t1, t2 = st.tabs(["➕ Alta de Insumo", "📋 Inventario Maestro"])
 
-    # --- PESTAÑA ALTA (CON VALIDACIÓN DE DUPLICADOS) ---
+    # --- PESTAÑA ALTA ---
     with t1:
         with st.form("alta_insumo", clear_on_submit=True):
             st.write("Datos del Insumo")
@@ -248,18 +250,13 @@ elif opcion == "Insumos":
             
             if st.form_submit_button("Guardar Insumo"):
                 if nuevo_nombre and nuevo_codigo:
-                    # --- VALIDACIÓN ANTI-DUPLICADOS ---
+                    # VALIDACIÓN ANTI-DUPLICADOS
                     duplicado_codigo = False
                     if not df.empty:
-                        # Verificamos si el código ya existe
                         if nuevo_codigo.strip() in df["codigo"].astype(str).str.strip().values:
-                            st.error(f"⛔ Error: El código '{nuevo_codigo}' ya existe en el inventario.")
+                            st.error(f"⛔ Error: El código '{nuevo_codigo}' ya existe.")
                             duplicado_codigo = True
-                        
-                        # (Opcional) Advertencia si la descripción es idéntica
-                        elif nuevo_nombre.strip().lower() in df["Descripcion"].astype(str).str.strip().str.lower().values:
-                            st.warning(f"⚠️ Nota: Ya existe un artículo con la descripción '{nuevo_nombre}'. Verifica que no sea el mismo.")
-
+                    
                     if not duplicado_codigo:
                         try:
                             datos_insert = {
@@ -271,22 +268,28 @@ elif opcion == "Insumos":
                                 "stock_minimo": nuevo_min
                             }
                             utils.supabase.table("Insumos").insert(datos_insert).execute()
-                            st.success(f"✅ Insumo {nuevo_codigo} agregado exitosamente.")
+                            st.success(f"✅ Insumo {nuevo_codigo} agregado.")
                             st.cache_data.clear()
                             time.sleep(1)
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Error al guardar: {e}")
+                            # Fallback si falla el espejo
+                            if "column \"Insumo\"" in str(e):
+                                datos_insert.pop("Insumo")
+                                utils.supabase.table("Insumos").insert(datos_insert).execute()
+                                st.success(f"✅ Insumo {nuevo_codigo} agregado.")
+                                st.rerun()
+                            else:
+                                st.error(f"Error al guardar: {e}")
                 else:
                     st.warning("El Código y la Descripción son obligatorios.")
 
-    # --- PESTAÑA EDICIÓN MAESTRA (CON BUSCADOR) ---
+    # --- PESTAÑA EDICIÓN MAESTRA (AJUSTADA AL ANCHO) ---
     with t2:
-        # 1. BUSCADOR INTELIGENTE
+        # Buscador
         col_search, _ = st.columns([1, 1])
         busqueda = col_search.text_input("🔍 Buscar Insumo", placeholder="Escribe código o descripción...")
 
-        # Filtramos el DF según la búsqueda
         df_display = df.copy()
         if busqueda:
             mask = (
@@ -296,12 +299,13 @@ elif opcion == "Insumos":
             df_display = df_display[mask]
 
         column_config = {
-            "id": st.column_config.NumberColumn("ID Sistema", disabled=True, width="small"),
-            "codigo": st.column_config.TextColumn("Código SKU", required=True, width="medium", help="Código alfanumérico único"),
-            "Descripcion": st.column_config.TextColumn("Descripción del Insumo", width="large", required=True),
-            "Cantidad": st.column_config.NumberColumn("Stock Actual", width="small", min_value=0),
+            # Anchos ajustados para que quepan
+            "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+            "codigo": st.column_config.TextColumn("Código SKU", required=True, width="medium"),
+            "Descripcion": st.column_config.TextColumn("Descripción", width=None), # Flexible
+            "Cantidad": st.column_config.NumberColumn("Stock", width="small", min_value=0),
             "Unidad": st.column_config.SelectboxColumn("Unidad", options=lista_unidades, required=True, width="small"),
-            "stock_minimo": st.column_config.NumberColumn("Mínimo ⚠️", width="small")
+            "stock_minimo": st.column_config.NumberColumn("Min ⚠️", width="small")
         }
         
         cols_ver = ["id", "codigo", "Descripcion", "Cantidad", "Unidad", "stock_minimo"]
@@ -312,17 +316,15 @@ elif opcion == "Insumos":
             df_display[cols_ver],
             column_config=column_config,
             num_rows="dynamic",
-            use_container_width=True,
+            use_container_width=True, # CLAVE: Ocupa todo el ancho
             height=500,
             key="editor_insumos_codigos_v3"
         )
 
         if st.button("💾 Guardar Cambios en Inventario"):
-            # --- VALIDACIÓN ANTI-DUPLICADOS EN TABLA ---
-            # Verificamos si hay códigos repetidos en lo que el usuario acaba de editar
             codigos_editados = edited_df["codigo"].astype(str).tolist()
             if len(codigos_editados) != len(set(codigos_editados)):
-                 st.error("⛔ Error: Hay códigos SKU duplicados en la tabla. Por favor, asegúrate de que cada SKU sea único antes de guardar.")
+                 st.error("⛔ Error: Hay códigos SKU duplicados en la tabla.")
             else:
                 bar = st.progress(0, text="Guardando cambios...")
                 total = len(edited_df)
@@ -332,7 +334,7 @@ elif opcion == "Insumos":
                         datos = {
                             "codigo": row["codigo"], 
                             "Descripcion": row["Descripcion"],
-                            "Insumo": row["Descripcion"], # Espejo
+                            "Insumo": row["Descripcion"],
                             "Cantidad": row["Cantidad"],
                             "Unidad": row["Unidad"],
                             "stock_minimo": row["stock_minimo"]
@@ -341,10 +343,9 @@ elif opcion == "Insumos":
                         if pd.notna(row["id"]):
                             utils.supabase.table("Insumos").update(datos).eq("id", row["id"]).execute()
                         else:
-                            # Chequeo extra por si agregan fila nueva en la tabla directo
                             utils.supabase.table("Insumos").insert(datos).execute()
-                    except Exception as e:
-                         # Fallback sin espejo
+                    except:
+                        # Fallback
                         try:
                             datos.pop("Insumo")
                             if pd.notna(row["id"]): utils.supabase.table("Insumos").update(datos).eq("id", row["id"]).execute()
