@@ -16,22 +16,28 @@ utils.validar_login()
 
 supabase = utils.supabase 
 
-# --- CLASE PDF PERSONALIZADA (MEJORADA) ---
+# --- CLASE PDF PERSONALIZADA (CON MARCA DE AGUA) ---
 class PDF(FPDF):
     def header(self):
-        # 1. LOGO (Izquierda)
+        # 1. MARCA DE AGUA (FONDO)
+        # Se pone primero para que quede detrás del texto
+        if os.path.exists("logo.png"):
+            # Coordenadas para centrarlo en una hoja A4 (aprox)
+            # x=55, y=100, ancho=100
+            self.image("logo.png", x=55, y=100, w=100)
+
+        # 2. LOGO ESQUINA SUPERIOR (MEMBRETE)
         if os.path.exists("logo.png"):
             self.image("logo.png", 10, 8, 33) 
         else:
             self.set_font('Arial', 'B', 20)
             self.cell(40, 10, 'HEMORE', 0, 0, 'L')
 
-        # 2. TÍTULO CENTRADO (Corrección solicitada)
-        # Nos movemos a la posición Y=10 y usamos todo el ancho (0) para centrar ('C')
+        # 3. TÍTULO CENTRADO
         self.set_xy(0, 10) 
         self.set_font('Arial', 'B', 16)
         self.cell(0, 10, 'Recibo de Entrega', 0, 1, 'C')
-        self.ln(15) # Espacio después del encabezado
+        self.ln(15) 
 
     def footer(self):
         self.set_y(-40)
@@ -382,30 +388,25 @@ elif "Recibos" in opcion_almacen:
                     else: st.warning("Tabla vacía.")
                 else: st.warning("Faltan datos.")
 
-    # 2. HISTORIAL MEJORADO (Agrupado por OC + Usuario)
+    # 2. HISTORIAL MEJORADO
     with tab_historial:
         st.subheader("📜 Historial de Recibos Generados")
         try:
-            # Traer 200 recibos
             h_rec = pd.DataFrame(supabase.table("Recibos_OC").select("*").order("id", desc=True).limit(200).execute().data)
             
             if not h_rec.empty:
-                # 1. Asegurar columnas
                 cols_hist = ["oc", "fecha", "cliente", "proveedor", "codigo", "descripcion", "cantidad", "usuario"]
                 for col in cols_hist:
                     if col not in h_rec.columns: h_rec[col] = "-"
                 
-                # 2. Filtro Buscador
                 filtro_oc = st.text_input("🔍 Buscar por OC o Cliente:")
                 if filtro_oc:
                     mask = h_rec.astype(str).apply(lambda x: x.str.contains(filtro_oc, case=False)).any(axis=1)
                     h_rec = h_rec[mask]
                 
-                # 3. ORDENAR/AGRUPAR: Ordenamos por OC para que salgan juntos
-                # Convertimos OC a string para ordenar bien, luego por fecha desc
+                # ORDENAR/AGRUPAR
                 h_rec = h_rec.sort_values(by=["oc", "id"], ascending=[False, False])
                 
-                # Renombrar para que se vea bien
                 h_rec_show = h_rec[cols_hist].rename(columns={
                     "oc": "O.C.",
                     "fecha": "Fecha",
@@ -414,7 +415,7 @@ elif "Recibos" in opcion_almacen:
                     "codigo": "Código",
                     "descripcion": "Descripción",
                     "cantidad": "Cant",
-                    "usuario": "Entregó" # <-- Columna pedida
+                    "usuario": "Entregó"
                 })
                 
                 st.dataframe(h_rec_show, use_container_width=True, hide_index=True)
