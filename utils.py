@@ -29,3 +29,13 @@ def cargar_datos(tabla):
 
 def limpiar_cache():
     st.cache_data.clear()
+# --- AGREGAR AL FINAL DE utils.py ---
+
+def cargar_estilos():
+    # Función parche para evitar el error en Home.py
+    import streamlit as st
+    st.markdown("""<style>.main {padding-top: 2rem;}</style>""", unsafe_allow_html=True)
+
+def validar_login():
+    # Función parche por si alguna página antigua la llama
+    pass
