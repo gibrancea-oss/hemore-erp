@@ -233,12 +233,11 @@ elif opcion == "Insumos":
 
     t1, t2 = st.tabs(["➕ Alta de Insumo", "📋 Inventario Maestro"])
 
-    # --- PESTAÑA ALTA CON CÓDIGO ALFANUMÉRICO ---
+    # --- PESTAÑA ALTA ---
     with t1:
         with st.form("alta_insumo", clear_on_submit=True):
             st.write("Datos del Insumo")
             
-            # --- CÓDIGO ALFANUMÉRICO (Texto) ---
             col_cod, col_nom = st.columns([1, 3]) 
             nuevo_codigo = col_cod.text_input("Código / SKU", placeholder="Ej. HEM-CL-001", help="Código único alfanumérico")
             nuevo_nombre = col_nom.text_input("Descripción del Insumo")
@@ -252,7 +251,7 @@ elif opcion == "Insumos":
                 if nuevo_nombre and nuevo_codigo:
                     try:
                         datos_insert = {
-                            "codigo": nuevo_codigo, # Guardamos el texto (HEM-001)
+                            "codigo": nuevo_codigo, 
                             "Descripcion": nuevo_nombre, 
                             "Unidad": nueva_unidad,
                             "Cantidad": nueva_cant, 
@@ -270,8 +269,9 @@ elif opcion == "Insumos":
 
     # --- PESTAÑA EDICIÓN MAESTRA ---
     with t2:
+        # AQUÍ ESTABA EL ERROR: QUITAMOS "hidden=True"
         column_config = {
-            "id": st.column_config.NumberColumn(disabled=True, hidden=True), # Ocultamos el ID numérico interno
+            "id": st.column_config.NumberColumn("ID Sistema", disabled=True, width="small"),
             "codigo": st.column_config.TextColumn("Código SKU", required=True, width="medium", help="Código alfanumérico único"),
             "Descripcion": st.column_config.TextColumn("Descripción del Insumo", width="large", required=True),
             "Cantidad": st.column_config.NumberColumn("Stock Actual", width="small", min_value=0),
@@ -300,7 +300,7 @@ elif opcion == "Insumos":
             for index, row in edited_df.iterrows():
                 try:
                     datos = {
-                        "codigo": row["codigo"], # Actualizamos el texto
+                        "codigo": row["codigo"], 
                         "Descripcion": row["Descripcion"],
                         "Cantidad": row["Cantidad"],
                         "Unidad": row["Unidad"],
