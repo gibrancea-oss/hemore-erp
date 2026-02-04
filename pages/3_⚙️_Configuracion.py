@@ -2,93 +2,126 @@ import streamlit as st
 import pandas as pd
 import utils # Tu archivo de conexión
 import time
+import datetime
 
 st.set_page_config(page_title="Configuración Master", page_icon="⚙️", layout="wide")
 
-# --- FUNCIÓN INTELIGENTE (Crea las pantallas automáticamente) ---
-def renderizar_catalogo(nombre_modulo, tabla_db, columnas_visibles, columnas_nuevas):
+# --- FUNCIÓN INTELIGENTE MEJORADA (Soporta fechas y más campos) ---
+def renderizar_catalogo(nombre_modulo, tabla_db, columnas_visibles, config_campos):
     st.markdown(f"### 📂 Catálogo de {nombre_modulo}")
     
     # 1. Cargar Datos
     try:
+        # Traemos todo ordenado por ID
         response = utils.supabase.table(tabla_db).select("*").order("id").execute()
         df = pd.DataFrame(response.data)
     except Exception as e:
         st.error(f"Error cargando {nombre_modulo}: {e}")
         return
 
-    # Si está vacía, crear estructura
     if df.empty:
-        df = pd.DataFrame(columns=["id"] + list(columnas_nuevas.keys()))
+        # Creamos columnas vacías basadas en la configuración si no hay datos
+        cols = ["id"] + list(config_campos.keys())
+        df = pd.DataFrame(columns=cols)
 
     # Pestañas
-    tab1, tab2 = st.tabs([f"➕ Nuevo {nombre_modulo}", "✏️ Editar Todo"])
+    tab1, tab2 = st.tabs([f"➕ Nuevo {nombre_modulo}", "📋 Lista Completa y Edición"])
 
-    # --- PESTAÑA 1: ALTA ---
+    # --- PESTAÑA 1: ALTA (FORMULARIO) ---
     with tab1:
+        st.write(f"Ingresa los datos del nuevo {nombre_modulo}.")
         with st.form(f"form_{tabla_db}", clear_on_submit=True):
-            col1, col2 = st.columns(2)
             datos_a_guardar = {}
             
-            # Generamos los campos del formulario automáticamente
-            keys = list(columnas_nuevas.keys())
-            # Campo 1 (Ej. Nombre)
-            datos_a_guardar[keys[0]] = col1.text_input(columnas_nuevas[keys[0]])
+            # Organizamos los campos en columnas de 2 en 2 para que se vea ordenado
+            claves = list(config_campos.keys())
             
-            # Campo 2 (Ej. Teléfono o Puesto) - Si existe
-            if len(keys) > 1:
-                if isinstance(columnas_nuevas[keys[1]], list): # Si es lista, usa Selectbox
-                    datos_a_guardar[keys[1]] = col2.selectbox("Opción", columnas_nuevas[keys[1]])
-                else:
-                    datos_a_guardar[keys[1]] = col2.text_input(columnas_nuevas[keys[1]])
-            
-            # Campos extra (si hay más de 2, los ponemos abajo)
-            for k in keys[2:]:
-                datos_a_guardar[k] = st.text_input(columnas_nuevas[k])
+            # Iteramos sobre los campos configurados
+            for i in range(0, len(claves), 2):
+                c1, c2 = st.columns(2)
+                
+                # Campo 1 (Izquierda)
+                key1 = claves[i]
+                tipo1 = config_campos[key1]
+                
+                with c1:
+                    if isinstance(tipo1, list): # Es una lista -> Selectbox
+                        datos_a_guardar[key1] = st.selectbox(f"{key1.replace('_', ' ').title()}", tipo1)
+                    elif "Fecha" in str(key1) or "fecha" in str(key1): # Es fecha -> Date Input
+                        datos_a_guardar[key1] = st.date_input(f"{key1.replace('_', ' ').title()}", value=datetime.date.today()).isoformat()
+                    elif "Activo" in str(tipo1): # Es checkbox oculto (siempre True al crear)
+                         datos_a_guardar[key1] = True
+                    else: # Texto normal
+                        datos_a_guardar[key1] = st.text_input(f"{tipo1}")
 
-            if st.form_submit_button("Guardar"):
-                if datos_a_guardar[keys[0]]: # Si el primer campo tiene datos
-                    utils.supabase.table(tabla_db).insert(datos_a_guardar).execute()
-                    st.success("✅ Guardado correctamente")
-                    st.cache_data.clear()
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.warning("El primer campo es obligatorio.")
+                # Campo 2 (Derecha) - Solo si existe un siguiente campo
+                if i + 1 < len(claves):
+                    key2 = claves[i+1]
+                    tipo2 = config_campos[key2]
+                    with c2:
+                        if isinstance(tipo2, list):
+                            datos_a_guardar[key2] = st.selectbox(f"{key2.replace('_', ' ').title()}", tipo2)
+                        elif "Fecha" in str(key2) or "fecha" in str(key2):
+                            datos_a_guardar[key2] = st.date_input(f"{key2.replace('_', ' ').title()}", value=datetime.date.today()).isoformat()
+                        elif "Activo" in str(tipo2):
+                             datos_a_guardar[key2] = True
+                        else:
+                            datos_a_guardar[key2] = st.text_input(f"{tipo2}")
 
-    # --- PESTAÑA 2: EDICIÓN ---
+            st.write("---")
+            if st.form_submit_button(f"💾 Guardar Nuevo {nombre_modulo}"):
+                # Validar que al menos el primer campo tenga datos (generalmente el nombre)
+                primera_llave = claves[0]
+                if datos_a_guardar[primera_llave]:
+                    try:
+                        utils.supabase.table(tabla_db).insert(datos_a_guardar).execute()
+                        st.success("✅ Registrado correctamente")
+                        st.cache_data.clear()
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al guardar: {e}")
+                else:
+                    st.warning(f"El campo {primera_llave} es obligatorio.")
+
+    # --- PESTAÑA 2: LISTA Y EDICIÓN ---
     with tab2:
-        st.info("💡 Edita directamente en la tabla y presiona Guardar.")
+        st.info("💡 Aquí tienes la lista completa. Modifica cualquier dato directamente en la tabla.")
         
-        # Filtramos columnas para no mostrar IDs ni fechas raras
+        # Filtramos columnas para mostrar solo lo que pediste
+        # Aseguramos que 'id' no sea editable y 'activo' sea checkbox
+        column_config = {
+            "id": st.column_config.NumberColumn(disabled=True),
+            "activo": st.column_config.CheckboxColumn("¿Activo?", help="Desmarca para dar de baja"),
+        }
+
+        # Aseguramos que las columnas existan en el DF antes de mostrarlas
         cols_finales = [c for c in columnas_visibles if c in df.columns]
-        df_editor = df[cols_finales] if not df.empty else df
+        if not cols_finales: cols_finales = df.columns # Fallback
 
         edited_df = st.data_editor(
-            df_editor,
-            num_rows="dynamic", # Permite agregar filas abajo
+            df[cols_finales],
+            column_config=column_config,
+            num_rows="dynamic",
             use_container_width=True,
+            height=500, # Tabla más alta para ver más gente
             key=f"editor_{tabla_db}"
         )
 
-        if st.button(f"💾 Guardar Cambios en {nombre_modulo}"):
-            bar = st.progress(0, text="Guardando...")
+        if st.button(f"🔄 Actualizar Cambios en {nombre_modulo}"):
+            bar = st.progress(0, text="Guardando cambios...")
             total = len(edited_df)
             
-            # Actualización inteligente fila por fila
             for index, row in edited_df.iterrows():
                 try:
-                    # Preparamos los datos limpios para subir
-                    datos_update = {col: row[col] for col in columnas_visibles if col != 'id'}
+                    datos_update = {col: row[col] for col in cols_finales if col != 'id'}
                     
                     if "id" in row and pd.notna(row["id"]):
-                        # Actualizar existente
                         utils.supabase.table(tabla_db).update(datos_update).eq("id", row["id"]).execute()
                     else:
-                        # Es una fila nueva creada en el editor
                         utils.supabase.table(tabla_db).insert(datos_update).execute()
                 except Exception as e:
-                    pass # Ignoramos errores menores de filas vacías
+                    pass 
                 bar.progress((index + 1) / total)
             
             bar.empty()
@@ -97,56 +130,57 @@ def renderizar_catalogo(nombre_modulo, tabla_db, columnas_visibles, columnas_nue
             time.sleep(1)
             st.rerun()
 
-# --- MENÚ LATERAL PRINCIPAL ---
+# --- MENÚ LATERAL ---
 st.sidebar.title("🔧 Configuración")
 opcion = st.sidebar.radio(
     "Selecciona Módulo:",
     ["Personal", "Insumos", "Herramientas", "Clientes", "Proveedores"]
 )
 
-st.title(f"Configuración de {opcion}")
+st.title(f"Administración de {opcion}")
 
-# --- LÓGICA DE NAVEGACIÓN ---
+# --- CONFIGURACIÓN DE CADA MÓDULO ---
 if opcion == "Personal":
-    # Tabla: Personal | Columnas a ver: id, nombre, puesto, activo
-    # Formulario Nuevo: nombre (Label), puesto (Lista de opciones)
-    renderizar_catalogo(
-        "Personal", 
-        "Personal", 
-        ["id", "nombre", "puesto", "activo"],
-        {"nombre": "Nombre Completo", "puesto": ["Operador", "Supervisor", "Almacén", "Mantenimiento"], "activo": "Activo (True/False)"}
-    )
+    # DEFINICIÓN DE CAMPOS PARA PERSONAL
+    campos_personal = {
+        "nombre": "Nombre Completo",
+        "puesto": ["Operador", "Supervisor", "Almacén", "Mantenimiento", "Administrativo"],
+        "anio_nacimiento": "Año de Nacimiento (Ej. 1995)",
+        "domicilio": "Domicilio Completo",
+        "curp": "CURP",
+        "rfc": "RFC",
+        "fecha_ingreso": "Fecha de Ingreso", # El código detecta 'fecha' y pone calendario
+        "activo": "Activo (Check)"
+    }
+    
+    cols_vista = ["id", "nombre", "puesto", "anio_nacimiento", "domicilio", "curp", "rfc", "fecha_ingreso", "activo"]
+    
+    renderizar_catalogo("Personal", "Personal", cols_vista, campos_personal)
 
 elif opcion == "Insumos":
-    # Asumimos que tu tabla Insumos tiene columnas: 'Nombre', 'Cantidad', 'Unidad'
-    # Ajusta los nombres de columnas según tu DB real
     renderizar_catalogo(
-        "Insumos", 
-        "Insumos", 
+        "Insumos", "Insumos", 
         ["id", "Nombre", "Cantidad", "Unidad"], 
-        {"Nombre": "Nombre del Insumo", "Cantidad": "Stock Inicial", "Unidad": "Unidad (Pzas, Kg, Lts)"}
+        {"Nombre": "Nombre Insumo", "Cantidad": "Stock Inicial", "Unidad": "Unidad (Kg, Pzas)"}
     )
 
 elif opcion == "Herramientas":
     renderizar_catalogo(
-        "Herramientas", 
-        "Herramientas", 
+        "Herramientas", "Herramientas", 
         ["id", "Herramienta", "Estado", "Ubicacion"], 
-        {"Herramienta": "Nombre Herramienta", "Estado": ["BUENO", "REGULAR", "MALO"], "Ubicacion": "Ubicación en Almacén"}
+        {"Herramienta": "Nombre", "Estado": ["BUENO", "REGULAR", "MALO"], "Ubicacion": "Ubicación"}
     )
 
 elif opcion == "Clientes":
     renderizar_catalogo(
-        "Clientes", 
-        "Clientes", 
+        "Clientes", "Clientes", 
         ["id", "nombre", "telefono", "direccion", "email"], 
-        {"nombre": "Nombre Cliente / Empresa", "telefono": "Teléfono", "direccion": "Dirección", "email": "Correo"}
+        {"nombre": "Cliente", "telefono": "Teléfono", "direccion": "Dirección", "email": "Email"}
     )
 
 elif opcion == "Proveedores":
     renderizar_catalogo(
-        "Proveedores", 
-        "Proveedores", 
+        "Proveedores", "Proveedores", 
         ["id", "empresa", "contacto", "telefono", "rfc"], 
-        {"empresa": "Nombre Empresa", "contacto": "Nombre Contacto", "telefono": "Teléfono", "rfc": "RFC"}
+        {"empresa": "Empresa", "contacto": "Contacto", "telefono": "Teléfono", "rfc": "RFC"}
     )
