@@ -194,7 +194,7 @@ if opcion == "Personal":
             st.rerun()
 
 # ==========================================
-# 2. INSUMOS (COMPLETO Y EDITABLE)
+# 2. INSUMOS (CON LIMPIEZA DE DUPLICADOS)
 # ==========================================
 elif opcion == "Insumos":
     lista_unidades = ["Pzas", "Kg", "Lts", "Mts", "Cajas", "Paquetes", "Rollos", "Juegos", "Botes", "Galones"]
@@ -206,23 +206,31 @@ elif opcion == "Insumos":
         response = utils.supabase.table("Insumos").select("*").order("id").execute()
         df = pd.DataFrame(response.data)
         
-        # Detectamos el nombre real de las columnas en la Base de Datos
-        # Esto es vital para saber qué enviar al guardar
-        col_desc_real = "Descripcion" # Por defecto
+        # --- 🧹 LIMPIEZA DE COLUMNAS DUPLICADAS (EL FIX) ---
         if not df.empty:
-            if "Insumo" in df.columns: col_desc_real = "Insumo"
-            elif "nombre" in df.columns: col_desc_real = "nombre"
-            elif "Nombre" in df.columns: col_desc_real = "Nombre"
+            # 1. Unificar Descripcion
+            if "Descripcion" not in df.columns:
+                 df["Descripcion"] = None # Crear si no existe
             
-            # Normalizamos a 'Descripcion' para que el Editor se vea bonito
-            if col_desc_real != "Descripcion" and col_desc_real in df.columns:
-                df.rename(columns={col_desc_real: "Descripcion"}, inplace=True)
-                
-            # Normalizamos Stock Minimo si viene raro
+            # Si existen 'Insumo', 'nombre' o 'Nombre', pásalos a 'Descripcion' si está vacía
+            for col_sucia in ["Insumo", "nombre", "Nombre"]:
+                if col_sucia in df.columns:
+                    df["Descripcion"] = df["Descripcion"].fillna(df[col_sucia])
+            
+            # 2. Unificar Stock Minimo
+            if "stock_minimo" not in df.columns:
+                 df["stock_minimo"] = 5.0
+            
             if "Stock_Minimo" in df.columns:
-                 df.rename(columns={"Stock_Minimo": "stock_minimo"}, inplace=True)
+                 df["stock_minimo"] = df["stock_minimo"].fillna(df["Stock_Minimo"])
 
-    except: df = pd.DataFrame()
+            # 3. BORRAR LAS COLUMNAS BASURA PARA EVITAR EL ERROR DE STREAMLIT
+            cols_a_borrar = ["Insumo", "nombre", "Nombre", "Stock_Minimo"]
+            df = df.drop(columns=[c for c in cols_a_borrar if c in df.columns], errors='ignore')
+
+    except Exception as e: 
+        st.error(f"Error de limpieza: {e}")
+        df = pd.DataFrame()
 
     if df.empty:
         df = pd.DataFrame(columns=["id", "Descripcion", "Cantidad", "Unidad", "stock_minimo"])
@@ -241,35 +249,26 @@ elif opcion == "Insumos":
             
             if st.form_submit_button("Guardar Insumo"):
                 if nuevo_nombre:
-                    # Usamos el nombre REAL de la columna que detectamos arriba (col_desc_real)
-                    # Si no detectamos nada, probamos 'Descripcion'
-                    col_destino = col_desc_real if 'col_desc_real' in locals() else "Descripcion"
-                    
+                    # Guardamos en 'Descripcion' (Mayúscula) que es la que dejaremos oficial
                     datos_insert = {
-                        col_destino: nuevo_nombre, 
+                        "Descripcion": nuevo_nombre, 
                         "Unidad": nueva_unidad,
                         "Cantidad": nueva_cant, 
                         "stock_minimo": nuevo_min
                     }
-                    
                     try:
                         utils.supabase.table("Insumos").insert(datos_insert).execute()
-                    except:
-                        # Plan B: Si falla, intentamos con 'Insumo' a la fuerza
-                        datos_insert.pop(col_destino)
-                        datos_insert["Insumo"] = nuevo_nombre
-                        utils.supabase.table("Insumos").insert(datos_insert).execute()
-                        
-                    st.success(f"✅ {nuevo_nombre} agregado.")
-                    st.cache_data.clear()
-                    time.sleep(1)
-                    st.rerun()
+                        st.success(f"✅ {nuevo_nombre} agregado.")
+                        st.cache_data.clear()
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al guardar: {e}")
                 else:
                     st.warning("Descripción obligatoria")
 
     # --- PESTAÑA EDICIÓN MAESTRA ---
     with t2:
-        # Configuración visual (Aquí todo es editable excepto ID)
         column_config = {
             "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
             "Descripcion": st.column_config.TextColumn("Descripción del Insumo", width="large", required=True),
@@ -279,7 +278,7 @@ elif opcion == "Insumos":
         }
         
         cols_ver = ["id", "Descripcion", "Cantidad", "Unidad", "stock_minimo"]
-        # Aseguramos que existan en el DF (aunque sea vacías)
+        # Aseguramos que existan en el DF
         for c in cols_ver:
             if c not in df.columns: df[c] = None
             
@@ -289,42 +288,28 @@ elif opcion == "Insumos":
             num_rows="dynamic",
             use_container_width=True,
             height=500,
-            key="editor_insumos_final"
+            key="editor_insumos_final_v2"
         )
 
         if st.button("💾 Guardar Cambios en Inventario"):
             bar = st.progress(0, text="Guardando cambios...")
             total = len(edited_df)
             
-            # Recuperamos el nombre real de la columna para guardar
-            col_destino = col_desc_real if 'col_desc_real' in locals() else "Descripcion"
-
             for index, row in edited_df.iterrows():
                 try:
-                    # Preparamos los datos
                     datos = {
+                        "Descripcion": row["Descripcion"],
                         "Cantidad": row["Cantidad"],
                         "Unidad": row["Unidad"],
                         "stock_minimo": row["stock_minimo"]
                     }
-                    # Agregamos la descripción usando el nombre correcto de columna DB
-                    datos[col_destino] = row["Descripcion"]
 
                     if pd.notna(row["id"]):
                         utils.supabase.table("Insumos").update(datos).eq("id", row["id"]).execute()
                     else:
                         utils.supabase.table("Insumos").insert(datos).execute()
                 except Exception as e:
-                    # Si falla, es probable que el nombre de columna no coincidió.
-                    # Intentamos guardar con 'Insumo' por si acaso.
-                    try:
-                        datos.pop(col_destino, None)
-                        datos["Insumo"] = row["Descripcion"]
-                        if pd.notna(row["id"]):
-                            utils.supabase.table("Insumos").update(datos).eq("id", row["id"]).execute()
-                        else:
-                            utils.supabase.table("Insumos").insert(datos).execute()
-                    except: pass
+                    pass
                 
                 bar.progress((index+1)/total)
             
