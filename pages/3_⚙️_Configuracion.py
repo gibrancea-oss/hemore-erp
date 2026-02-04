@@ -6,88 +6,7 @@ import datetime
 
 st.set_page_config(page_title="Configuración Master", page_icon="⚙️", layout="wide")
 
-# --- FUNCIÓN INTELIGENTE (Solo queda para Proveedores) ---
-def renderizar_catalogo_generico(nombre_modulo, tabla_db, columnas_visibles, config_campos):
-    st.markdown(f"### 📂 Catálogo de {nombre_modulo}")
-    
-    try:
-        response = utils.supabase.table(tabla_db).select("*").order("id").execute()
-        df = pd.DataFrame(response.data)
-    except Exception as e:
-        st.error(f"Error cargando {nombre_modulo}: {e}")
-        return
-
-    if df.empty:
-        df = pd.DataFrame(columns=["id"] + list(config_campos.keys()))
-
-    tab1, tab2 = st.tabs([f"➕ Nuevo {nombre_modulo}", "📋 Lista Completa"])
-
-    with tab1:
-        st.write(f"Ingresa los datos del nuevo {nombre_modulo}.")
-        with st.form(f"form_{tabla_db}", clear_on_submit=True):
-            datos_a_guardar = {}
-            claves = list(config_campos.keys())
-            
-            for i in range(0, len(claves), 2):
-                c1, c2 = st.columns(2)
-                key1 = claves[i]
-                with c1:
-                    if isinstance(config_campos[key1], list):
-                        datos_a_guardar[key1] = st.selectbox(f"{key1.replace('_', ' ').title()}", config_campos[key1])
-                    else:
-                        datos_a_guardar[key1] = st.text_input(config_campos[key1])
-                
-                if i + 1 < len(claves):
-                    key2 = claves[i+1]
-                    with c2:
-                        if isinstance(config_campos[key2], list):
-                            datos_a_guardar[key2] = st.selectbox(f"{key2.replace('_', ' ').title()}", config_campos[key2])
-                        else:
-                            datos_a_guardar[key2] = st.text_input(config_campos[key2])
-
-            st.write("---")
-            if st.form_submit_button(f"💾 Guardar {nombre_modulo}"):
-                if datos_a_guardar[claves[0]]:
-                    utils.supabase.table(tabla_db).insert(datos_a_guardar).execute()
-                    st.success("✅ Guardado correctamente")
-                    st.cache_data.clear()
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.warning("El primer campo es obligatorio.")
-
-    with tab2:
-        st.info("💡 Edita directamente en la tabla.")
-        cols_finales = [c for c in columnas_visibles if c in df.columns]
-        if not cols_finales: cols_finales = df.columns
-        
-        column_config = {"id": st.column_config.NumberColumn(disabled=True)}
-
-        edited_df = st.data_editor(
-            df[cols_finales],
-            column_config=column_config,
-            num_rows="dynamic",
-            use_container_width=True,
-            key=f"editor_{tabla_db}"
-        )
-
-        if st.button(f"🔄 Actualizar {nombre_modulo}"):
-            bar = st.progress(0, text="Guardando...")
-            total = len(edited_df)
-            for index, row in edited_df.iterrows():
-                try:
-                    datos = {col: row[col] for col in cols_finales if col != 'id'}
-                    if "id" in row and pd.notna(row["id"]):
-                        utils.supabase.table(tabla_db).update(datos).eq("id", row["id"]).execute()
-                    else:
-                        utils.supabase.table(tabla_db).insert(datos).execute()
-                except: pass
-                bar.progress((index + 1) / total)
-            bar.empty()
-            st.success("✅ Actualizado.")
-            st.cache_data.clear()
-            time.sleep(1)
-            st.rerun()
+# --- NO SE USA YA LA FUNCIÓN GENÉRICA, TODO ES PERSONALIZADO ---
 
 # ==========================================
 # MENÚ PRINCIPAL
@@ -413,12 +332,10 @@ elif opcion == "Herramientas":
                 st.rerun()
 
 # ==========================================
-# 4. CLIENTES (NUEVO Y MEJORADO)
+# 4. CLIENTES (AJUSTADO PARA QUE QUEPA)
 # ==========================================
 elif opcion == "Clientes":
     st.markdown("### 🏢 Gestión de Clientes")
-    
-    # Cargar datos
     try:
         response = utils.supabase.table("Clientes").select("*").order("id").execute()
         df = pd.DataFrame(response.data)
@@ -434,15 +351,12 @@ elif opcion == "Clientes":
     with t1:
         with st.form("alta_cliente", clear_on_submit=True):
             st.write("Datos de la Empresa / Cliente")
-            
             c1, c2 = st.columns(2)
             nuevo_nombre = c1.text_input("Nombre de la Empresa")
             nuevo_rfc = c2.text_input("RFC")
-            
             c3, c4 = st.columns(2)
             nueva_direccion = c3.text_input("Domicilio (Calle y Número)")
             nueva_colonia = c4.text_input("Colonia")
-            
             c5, c6 = st.columns(2)
             nuevo_cp = c5.text_input("Código Postal")
             nuevo_estado = c6.text_input("Estado")
@@ -450,28 +364,138 @@ elif opcion == "Clientes":
             if st.form_submit_button("Guardar Cliente"):
                 if nuevo_nombre:
                     try:
-                        datos = {
-                            "nombre": nuevo_nombre, # Mapeamos 'nombre' a Empresa
-                            "direccion": nueva_direccion,
-                            "rfc": nuevo_rfc,
-                            "colonia": nueva_colonia,
-                            "codigo_postal": nuevo_cp,
-                            "estado": nuevo_estado
-                        }
+                        datos = {"nombre": nuevo_nombre, "direccion": nueva_direccion, "rfc": nuevo_rfc,
+                                 "colonia": nueva_colonia, "codigo_postal": nuevo_cp, "estado": nuevo_estado}
                         utils.supabase.table("Clientes").insert(datos).execute()
                         st.success(f"✅ {nuevo_nombre} registrado.")
                         st.cache_data.clear()
                         time.sleep(1)
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Error al guardar: {e}")
-                else:
-                    st.warning("El Nombre de la Empresa es obligatorio.")
+                    except Exception as e: st.error(f"Error al guardar: {e}")
+                else: st.warning("Nombre obligatorio.")
 
     with t2:
-        # Buscador Inteligente
         col_bus, _ = st.columns([1,1])
         busqueda = col_bus.text_input("🔍 Buscar Cliente", placeholder="Empresa o RFC...")
+        df_show = df.copy()
+        if busqueda:
+             mask = (df_show["nombre"].astype(str).str.contains(busqueda, case=False, na=False) |
+                     df_show["rfc"].astype(str).str.contains(busqueda, case=False, na=False))
+             df_show = df_show[mask]
+
+        column_config = {
+            "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+            "nombre": st.column_config.TextColumn("Empresa", width="medium", required=True),
+            "direccion": st.column_config.TextColumn("Domicilio", width="medium"), # Ajustado para que quepa
+            "colonia": st.column_config.TextColumn("Colonia", width="medium"),
+            "codigo_postal": st.column_config.TextColumn("C.P.", width="small"),
+            "rfc": st.column_config.TextColumn("RFC", width="medium"),
+            "estado": st.column_config.TextColumn("Estado", width="small")
+        }
+        cols_ver = ["id", "nombre", "direccion", "colonia", "codigo_postal", "rfc", "estado"]
+        for c in cols_ver:
+            if c not in df_show.columns: df_show[c] = None
+
+        edited_df = st.data_editor(df_show[cols_ver], column_config=column_config, num_rows="dynamic", use_container_width=True, key="editor_clientes")
+
+        if st.button("💾 Actualizar Clientes"):
+            bar = st.progress(0, text="Guardando...")
+            total = len(edited_df)
+            for index, row in edited_df.iterrows():
+                try:
+                    datos = {"nombre": row["nombre"], "direccion": row["direccion"], "colonia": row["colonia"],
+                             "codigo_postal": row["codigo_postal"], "rfc": row["rfc"], "estado": row["estado"]}
+                    if pd.notna(row["id"]): utils.supabase.table("Clientes").update(datos).eq("id", row["id"]).execute()
+                    else: utils.supabase.table("Clientes").insert(datos).execute()
+                except: pass
+                bar.progress((index+1)/total)
+            bar.empty()
+            st.success("✅ Actualizado.")
+            st.cache_data.clear()
+            time.sleep(1)
+            st.rerun()
+
+# ==========================================
+# 5. PROVEEDORES (NUEVO Y AJUSTADO)
+# ==========================================
+elif opcion == "Proveedores":
+    st.markdown("### 🚚 Gestión de Proveedores")
+    
+    # 1. Cargar Datos
+    try:
+        response = utils.supabase.table("Proveedores").select("*").order("id").execute()
+        df = pd.DataFrame(response.data)
+        
+        # Mapeo inteligente por si en DB se llama 'empresa' en lugar de 'nombre'
+        if not df.empty:
+            if "empresa" in df.columns and "nombre" not in df.columns:
+                 df["nombre"] = df["empresa"] # Alias visual
+            
+    except Exception as e:
+        st.error(f"Error cargando proveedores: {e}")
+        df = pd.DataFrame()
+
+    if df.empty:
+        df = pd.DataFrame(columns=["id", "nombre", "domicilio", "colonia", "rfc", "codigo_postal"])
+
+    t1, t2 = st.tabs(["➕ Alta Proveedor", "📋 Lista de Proveedores"])
+
+    # --- ALTA ---
+    with t1:
+        with st.form("alta_proveedor", clear_on_submit=True):
+            st.write("Datos del Proveedor")
+            
+            c1, c2 = st.columns(2)
+            nuevo_nombre = c1.text_input("Nombre / Empresa")
+            nuevo_rfc = c2.text_input("RFC")
+            
+            c3, c4 = st.columns(2)
+            nuevo_dom = c3.text_input("Domicilio (Calle y Número)")
+            nueva_col = c4.text_input("Colonia")
+            
+            c5 = st.columns(1)[0]
+            nuevo_cp = c5.text_input("Código Postal")
+
+            if st.form_submit_button("Guardar Proveedor"):
+                if nuevo_nombre:
+                    try:
+                        # Intentamos guardar. Si la DB pide 'empresa', le mandamos 'empresa'.
+                        # Si pide 'nombre', le mandamos 'nombre'.
+                        datos = {
+                            "domicilio": nuevo_dom, "colonia": nueva_col, 
+                            "rfc": nuevo_rfc, "codigo_postal": nuevo_cp
+                        }
+                        
+                        # Truco dual para asegurar compatibilidad
+                        datos["nombre"] = nuevo_nombre
+                        datos["empresa"] = nuevo_nombre 
+                        
+                        utils.supabase.table("Proveedores").insert(datos).execute()
+                        st.success(f"✅ {nuevo_nombre} registrado.")
+                        st.cache_data.clear()
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        # Fallback si falla por columnas extrañas
+                        if "column \"nombre\"" in str(e):
+                             datos.pop("nombre")
+                             utils.supabase.table("Proveedores").insert(datos).execute()
+                             st.success("✅ Registrado.")
+                             st.rerun()
+                        elif "column \"empresa\"" in str(e):
+                             datos.pop("empresa")
+                             utils.supabase.table("Proveedores").insert(datos).execute()
+                             st.success("✅ Registrado.")
+                             st.rerun()
+                        else:
+                             st.error(f"Error al guardar: {e}")
+                else:
+                    st.warning("El Nombre es obligatorio.")
+
+    # --- LISTA Y BÚSQUEDA ---
+    with t2:
+        col_bus, _ = st.columns([1,1])
+        busqueda = col_bus.text_input("🔍 Buscar Proveedor", placeholder="Nombre o RFC...")
         
         df_show = df.copy()
         if busqueda:
@@ -483,16 +507,14 @@ elif opcion == "Clientes":
 
         column_config = {
             "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
-            "nombre": st.column_config.TextColumn("Empresa", width="medium", required=True),
-            "direccion": st.column_config.TextColumn("Domicilio", width="large"),
+            "nombre": st.column_config.TextColumn("Proveedor", width="medium", required=True),
+            "domicilio": st.column_config.TextColumn("Domicilio", width="medium"), # Ajustado para caber
             "colonia": st.column_config.TextColumn("Colonia", width="medium"),
-            "codigo_postal": st.column_config.TextColumn("C.P.", width="small"),
             "rfc": st.column_config.TextColumn("RFC", width="medium"),
-            "estado": st.column_config.TextColumn("Estado", width="medium")
+            "codigo_postal": st.column_config.TextColumn("C.P.", width="small")
         }
         
-        cols_ver = ["id", "nombre", "direccion", "colonia", "codigo_postal", "rfc", "estado"]
-        # Asegurar existencia de columnas
+        cols_ver = ["id", "nombre", "domicilio", "colonia", "rfc", "codigo_postal"]
         for c in cols_ver:
             if c not in df_show.columns: df_show[c] = None
 
@@ -500,41 +522,34 @@ elif opcion == "Clientes":
             df_show[cols_ver],
             column_config=column_config,
             num_rows="dynamic",
-            use_container_width=True,
-            key="editor_clientes"
+            use_container_width=True, # Ajuste de pantalla completa
+            key="editor_proveedores"
         )
 
-        if st.button("💾 Actualizar Clientes"):
+        if st.button("💾 Actualizar Proveedores"):
             bar = st.progress(0, text="Guardando...")
             total = len(edited_df)
             for index, row in edited_df.iterrows():
                 try:
                     datos = {
-                        "nombre": row["nombre"],
-                        "direccion": row["direccion"],
-                        "colonia": row["colonia"],
-                        "codigo_postal": row["codigo_postal"],
-                        "rfc": row["rfc"],
-                        "estado": row["estado"]
+                        "domicilio": row["domicilio"], "colonia": row["colonia"],
+                        "rfc": row["rfc"], "codigo_postal": row["codigo_postal"],
+                        "nombre": row["nombre"], "empresa": row["nombre"] # Espejo por seguridad
                     }
-                    if pd.notna(row["id"]):
-                        utils.supabase.table("Clientes").update(datos).eq("id", row["id"]).execute()
-                    else:
-                        utils.supabase.table("Clientes").insert(datos).execute()
-                except: pass
+                    
+                    if pd.notna(row["id"]): utils.supabase.table("Proveedores").update(datos).eq("id", row["id"]).execute()
+                    else: utils.supabase.table("Proveedores").insert(datos).execute()
+                except: 
+                     # Fallback simple
+                     try:
+                        datos.pop("nombre")
+                        if pd.notna(row["id"]): utils.supabase.table("Proveedores").update(datos).eq("id", row["id"]).execute()
+                        else: utils.supabase.table("Proveedores").insert(datos).execute()
+                     except: pass
+                
                 bar.progress((index+1)/total)
             bar.empty()
-            st.success("✅ Clientes actualizados.")
+            st.success("✅ Proveedores actualizados.")
             st.cache_data.clear()
             time.sleep(1)
             st.rerun()
-
-# ==========================================
-# 5. PROVEEDORES (GENÉRICO)
-# ==========================================
-elif opcion == "Proveedores":
-    renderizar_catalogo_generico(
-        "Proveedores", "Proveedores", 
-        ["id", "empresa", "contacto", "telefono", "rfc"], 
-        {"empresa": "Empresa", "contacto": "Contacto", "telefono": "Teléfono", "rfc": "RFC"}
-    )
