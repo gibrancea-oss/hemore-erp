@@ -16,24 +16,17 @@ utils.validar_login()
 
 supabase = utils.supabase 
 
-# --- CLASE PDF PERSONALIZADA (CON MARCA DE AGUA) ---
+# --- CLASE PDF PERSONALIZADA (SIN MARCA DE AGUA) ---
 class PDF(FPDF):
     def header(self):
-        # 1. MARCA DE AGUA (FONDO)
-        # Se pone primero para que quede detrás del texto
-        if os.path.exists("logo.png"):
-            # Coordenadas para centrarlo en una hoja A4 (aprox)
-            # x=55, y=100, ancho=100
-            self.image("logo.png", x=55, y=100, w=100)
-
-        # 2. LOGO ESQUINA SUPERIOR (MEMBRETE)
+        # 1. LOGO ESQUINA SUPERIOR (MEMBRETE)
         if os.path.exists("logo.png"):
             self.image("logo.png", 10, 8, 33) 
         else:
             self.set_font('Arial', 'B', 20)
             self.cell(40, 10, 'HEMORE', 0, 0, 'L')
 
-        # 3. TÍTULO CENTRADO
+        # 2. TÍTULO CENTRADO
         self.set_xy(0, 10) 
         self.set_font('Arial', 'B', 16)
         self.cell(0, 10, 'Recibo de Entrega', 0, 1, 'C')
