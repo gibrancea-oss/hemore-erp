@@ -6,8 +6,11 @@ import utils # Tu archivo de conexión
 
 # 1. CONFIGURACIÓN DE PÁGINA
 st.set_page_config(page_title="Almacén Central", page_icon="📦", layout="wide")
-utils.validar_login() # Seguridad
-supabase = utils.init_connection()
+
+# --- CORRECCIÓN DE ERROR ---
+# Quitamos utils.validar_login() porque no existe en tu archivo utils
+# Usamos la conexión directa que ya sabemos que funciona en Configuración
+supabase = utils.supabase 
 
 st.title("🏭 Control de Almacén")
 
@@ -29,14 +32,12 @@ with tab_insumos:
     if df_ins.empty:
         st.warning("No hay insumos registrados. Ve a Configuración para agregar.")
     else:
-        # Layout de 2 columnas: Izquierda (Operación), Derecha (Consulta rápida)
         col_op, col_view = st.columns([1, 2])
         
         with col_op:
             st.markdown("### 📝 Registrar Movimiento")
             
-            # Crear lista inteligente para el buscador: "CODIGO - DESCRIPCION"
-            # Aseguramos que existan las columnas para no romper el código
+            # Limpieza para evitar errores si faltan columnas
             if "codigo" not in df_ins.columns: df_ins["codigo"] = df_ins["id"].astype(str)
             if "Descripcion" not in df_ins.columns: df_ins["Descripcion"] = "Sin Nombre"
             
@@ -59,7 +60,7 @@ with tab_insumos:
                 if item_actual['Cantidad'] >= cantidad_mov:
                     nuevo_stock = item_actual['Cantidad'] - cantidad_mov
                     try:
-                        # 1. Actualizar Stock
+                        # Actualizar Stock
                         supabase.table("Insumos").update({"Cantidad": nuevo_stock}).eq("id", int(item_actual['id'])).execute()
                         st.success(f"✅ Salida registrada. Nuevo stock: {nuevo_stock}")
                         time.sleep(1)
@@ -73,7 +74,7 @@ with tab_insumos:
             if c_btn2.button("📈 ENTRADA (Surtido)"):
                 nuevo_stock = item_actual['Cantidad'] + cantidad_mov
                 try:
-                    # 1. Actualizar Stock
+                    # Actualizar Stock
                     supabase.table("Insumos").update({"Cantidad": nuevo_stock}).eq("id", int(item_actual['id'])).execute()
                     st.success(f"✅ Entrada registrada. Nuevo stock: {nuevo_stock}")
                     time.sleep(1)
@@ -83,10 +84,14 @@ with tab_insumos:
 
         with col_view:
             st.markdown("### 📊 Existencias en Tiempo Real")
-            # Mostramos una tabla limpia solo con lo importante
-            df_show = df_ins[["codigo", "Descripcion", "Cantidad", "Unidad", "stock_minimo"]].copy()
             
-            # Resaltar filas con stock bajo
+            # Preparamos columnas seguras para mostrar
+            cols_show = ["codigo", "Descripcion", "Cantidad", "Unidad", "stock_minimo"]
+            for c in cols_show:
+                if c not in df_ins.columns: df_ins[c] = None
+                
+            df_show = df_ins[cols_show].copy()
+            
             st.dataframe(
                 df_show, 
                 use_container_width=True,
@@ -96,15 +101,14 @@ with tab_insumos:
             )
 
 # ==================================================
-# 🔵 PESTAÑA 2: CONTROL DE HERRAMIENTAS (Tu Código Mejorado)
+# 🔵 PESTAÑA 2: CONTROL DE HERRAMIENTAS
 # ==================================================
 with tab_herramientas:
     # 1. Cargar Datos Actualizados
     try:
         df_her = pd.DataFrame(supabase.table("Herramientas").select("*").order("id").execute().data)
         
-        # CAMBIO IMPORTANTE: Usamos la tabla 'Personal' en lugar de 'Operadores'
-        # Filtramos solo los que están activos para no prestarle a alguien dado de baja
+        # Cargamos Personal Activo
         df_personal = pd.DataFrame(supabase.table("Personal").select("nombre").eq("activo", True).execute().data)
         lista_personal = df_personal['nombre'].tolist() if not df_personal.empty else []
         
@@ -113,15 +117,15 @@ with tab_herramientas:
         df_her = pd.DataFrame()
         lista_personal = []
 
-    # Validaciones de columnas para evitar errores si la DB está vacía o nueva
     if not df_her.empty:
-        if "Responsable" not in df_her.columns: df_her["Responsable"] = "Bodega" # Por defecto si es null
+        # Normalización de columnas para evitar errores
+        if "Responsable" not in df_her.columns: df_her["Responsable"] = "Bodega"
         df_her["Responsable"] = df_her["Responsable"].fillna("Bodega")
         
         if "codigo" not in df_her.columns: df_her["codigo"] = df_her["id"]
         if "marca" not in df_her.columns: df_her["marca"] = ""
+        if "Herramienta" not in df_her.columns: df_her["Herramienta"] = "Sin Nombre"
 
-    # Separar lógica
     bodega = df_her[df_her['Responsable'] == 'Bodega']
     prestadas = df_her[df_her['Responsable'] != 'Bodega']
 
@@ -131,8 +135,6 @@ with tab_herramientas:
     with c1.form("prestar"):
         st.subheader("📤 Prestar Herramienta")
         
-        # MEJORA: El menú ahora muestra CODIGO + NOMBRE + MARCA
-        # Usamos el ID oculto al principio para poder recuperarlo luego
         l_bodega = []
         if not bodega.empty:
             l_bodega = [f"{r['id']} | {r['codigo']} - {r['Herramienta']} ({r['marca']})" for i, r in bodega.iterrows()]
@@ -142,21 +144,20 @@ with tab_herramientas:
         
         if st.form_submit_button("Confirmar Préstamo"):
             if sel_p and resp:
-                # Extraemos el ID numérico que pusimos al principio del string
                 id_h = int(sel_p.split(" | ")[0])
                 
                 # Actualizamos Responsable
                 supabase.table("Herramientas").update({"Responsable": resp}).eq("id", id_h).execute()
                 
-                # Historial (Si tienes la tabla creada, si no, fallará suavemente)
+                # Historial
                 try:
                     supabase.table("Historial_Herramientas").insert({
                         "Fecha_Hora": datetime.now().strftime('%Y-%m-%d %H:%M'),
-                        "Herramienta": sel_p.split(" | ")[1], # Guardamos el nombre legible
+                        "Herramienta": sel_p.split(" | ")[1], 
                         "Movimiento": "Préstamo",
                         "Responsable": resp
                     }).execute()
-                except: pass # Si no existe la tabla historial, no rompemos el flujo
+                except: pass
                 
                 st.success(f"✅ Herramienta entregada a {resp}")
                 time.sleep(1)
@@ -205,7 +206,6 @@ with tab_herramientas:
     st.divider()
     st.subheader("📋 Listado Global de Activos")
     
-    # Buscador rápido para la tabla
     filtro = st.text_input("🔍 Buscar en herramientas...", placeholder="Escribe código, nombre o responsable")
     
     df_view = df_her.copy()
@@ -213,10 +213,14 @@ with tab_herramientas:
         mask = df_view.astype(str).apply(lambda x: x.str.contains(filtro, case=False)).any(axis=1)
         df_view = df_view[mask]
 
-    # Colorear fila si está prestada (Visual simple)
+    # Preparamos columnas seguras para mostrar
+    cols_her_show = ["codigo", "Herramienta", "marca", "Responsable", "Estado", "descripcion"]
+    for c in cols_her_show:
+        if c not in df_view.columns: df_view[c] = None
+
     st.dataframe(
         df_view, 
         use_container_width=True,
-        column_order=["codigo", "Herramienta", "marca", "Responsable", "Estado", "descripcion"],
+        column_order=cols_her_show,
         hide_index=True
     )
