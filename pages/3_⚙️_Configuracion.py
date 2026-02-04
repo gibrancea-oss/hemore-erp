@@ -8,18 +8,16 @@ st.set_page_config(page_title="Configuración", page_icon="⚙️", layout="wide
 
 def app_personal():
     st.markdown("### 👥 Gestión de Personal (Datos Maestros)")
-    st.info("Administra aquí a los 50 colaboradores. Desmarca la casilla 'Activo' para dar de baja sin borrar historial.")
+    st.info("Administra aquí a los 50 colaboradores. Desmarca la casilla 'Activo' para dar de baja.")
 
     # --- 1. CARGAR DATOS ---
     try:
-        # Traemos todos los datos de la tabla Personal
         response = utils.supabase.table("Personal").select("*").order("nombre").execute()
         df_personal = pd.DataFrame(response.data)
     except Exception as e:
         st.error(f"Error de conexión: {e}")
         return
 
-    # Si la tabla está vacía, creamos estructura vacía para evitar error visual
     if df_personal.empty:
         df_personal = pd.DataFrame(columns=["id", "nombre", "puesto", "activo"])
 
@@ -31,15 +29,11 @@ def app_personal():
         st.write("Registra un nuevo empleado.")
         with st.form("form_alta_personal", clear_on_submit=True):
             col1, col2 = st.columns(2)
-            nuevo_nombre = col1.text_input("Nombre Completo (Ej. Juan Perez)")
+            nuevo_nombre = col1.text_input("Nombre Completo")
             nuevo_puesto = col2.selectbox("Puesto", ["Operador", "Supervisor", "Almacén", "Mantenimiento", "Administrativo"])
             
-            submitted = st.form_submit_button("Guardar Nuevo Empleado")
-            
-            if submitted:
+            if st.form_submit_button("Guardar Nuevo Empleado"):
                 if nuevo_nombre:
-                    # Validar si ya existe
-                    # Convertimos a string y minúsculas para comparar
                     nombres_existentes = df_personal["nombre"].astype(str).str.lower().values
                     if nuevo_nombre.lower() in nombres_existentes:
                         st.error("⚠️ Ese nombre ya existe.")
@@ -47,7 +41,7 @@ def app_personal():
                         datos = {"nombre": nuevo_nombre, "puesto": nuevo_puesto, "activo": True}
                         utils.supabase.table("Personal").insert(datos).execute()
                         st.success(f"✅ {nuevo_nombre} registrado correctamente.")
-                        st.cache_data.clear() # Limpiar memoria para ver cambios
+                        st.cache_data.clear()
                         time.sleep(1)
                         st.rerun()
                 else:
@@ -57,9 +51,19 @@ def app_personal():
     with tab_edicion:
         st.write("Modifica los datos en la tabla. Desmarca 'Activo' para dar de baja.")
         
+        # CORRECCIÓN: Seleccionamos SOLO las columnas que queremos mostrar
+        # Así evitamos el error y ocultamos la fecha fea automáticamente.
+        columnas_visibles = ["id", "nombre", "puesto", "activo"]
+        
+        # Filtramos el DataFrame si tiene datos, si no, usamos el vacío
+        if not df_personal.empty:
+            df_editor = df_personal[columnas_visibles]
+        else:
+            df_editor = df_personal
+
         # Editor de datos interactivo
         edited_df = st.data_editor(
-            df_personal,
+            df_editor,
             column_config={
                 "id": st.column_config.NumberColumn(disabled=True),
                 "nombre": st.column_config.TextColumn("Nombre", max_chars=50),
@@ -71,8 +75,7 @@ def app_personal():
                 "activo": st.column_config.CheckboxColumn(
                     "¿Activo?",
                     help="Si lo desmarcas, el empleado ya no podrá recibir herramientas."
-                ),
-                "created_at": st.column_config.Column(disabled=True, hidden=True) # Ocultamos fecha
+                )
             },
             hide_index=True,
             use_container_width=True,
@@ -84,7 +87,6 @@ def app_personal():
             progress_text = "Actualizando base de datos..."
             barra = st.progress(0, text=progress_text)
             
-            # Recorremos la tabla editada para actualizar fila por fila
             total = len(edited_df)
             for index, row in edited_df.iterrows():
                 try:
@@ -104,6 +106,5 @@ def app_personal():
             time.sleep(1)
             st.rerun()
 
-# Ejecutar la función principal
 if __name__ == "__main__":
     app_personal()
