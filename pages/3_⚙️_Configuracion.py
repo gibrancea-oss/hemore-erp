@@ -194,7 +194,7 @@ if opcion == "Personal":
             st.rerun()
 
 # ==========================================
-# 2. INSUMOS (CON CONTROL MANUAL DE ID)
+# 2. INSUMOS (CON CÓDIGO ALFANUMÉRICO)
 # ==========================================
 elif opcion == "Insumos":
     lista_unidades = ["Pzas", "Kg", "Lts", "Mts", "Cajas", "Paquetes", "Rollos", "Juegos", "Botes", "Galones"]
@@ -213,6 +213,10 @@ elif opcion == "Insumos":
                 if col_sucia in df.columns:
                     df["Descripcion"] = df["Descripcion"].fillna(df[col_sucia])
             
+            # Unificamos el código (si no existe, usamos el ID como fallback visual)
+            if "codigo" not in df.columns: df["codigo"] = df["id"].astype(str)
+            else: df["codigo"] = df["codigo"].fillna(df["id"].astype(str))
+
             if "stock_minimo" not in df.columns: df["stock_minimo"] = 5.0
             if "Stock_Minimo" in df.columns:
                  df["stock_minimo"] = df["stock_minimo"].fillna(df["Stock_Minimo"])
@@ -225,18 +229,18 @@ elif opcion == "Insumos":
         df = pd.DataFrame()
 
     if df.empty:
-        df = pd.DataFrame(columns=["id", "Descripcion", "Cantidad", "Unidad", "stock_minimo"])
+        df = pd.DataFrame(columns=["id", "codigo", "Descripcion", "Cantidad", "Unidad", "stock_minimo"])
 
     t1, t2 = st.tabs(["➕ Alta de Insumo", "📋 Inventario Maestro"])
 
-    # --- PESTAÑA ALTA CON ID MANUAL ---
+    # --- PESTAÑA ALTA CON CÓDIGO ALFANUMÉRICO ---
     with t1:
         with st.form("alta_insumo", clear_on_submit=True):
             st.write("Datos del Insumo")
             
-            # --- NUEVO: PEDIR EL ID PRIMERO ---
-            col_id, col_nom = st.columns([1, 3]) 
-            nuevo_id = col_id.number_input("ID / Código", min_value=1, step=1, help="Ingresa el código manual del insumo")
+            # --- CÓDIGO ALFANUMÉRICO (Texto) ---
+            col_cod, col_nom = st.columns([1, 3]) 
+            nuevo_codigo = col_cod.text_input("Código / SKU", placeholder="Ej. HEM-CL-001", help="Código único alfanumérico")
             nuevo_nombre = col_nom.text_input("Descripción del Insumo")
             
             c1, c2, c3 = st.columns(3)
@@ -245,41 +249,38 @@ elif opcion == "Insumos":
             nuevo_min = c3.number_input("Stock Mínimo", value=5.0)
             
             if st.form_submit_button("Guardar Insumo"):
-                if nuevo_nombre and nuevo_id:
+                if nuevo_nombre and nuevo_codigo:
                     try:
-                        # Intentamos insertar con el ID manual
                         datos_insert = {
-                            "id": int(nuevo_id), 
+                            "codigo": nuevo_codigo, # Guardamos el texto (HEM-001)
                             "Descripcion": nuevo_nombre, 
                             "Unidad": nueva_unidad,
                             "Cantidad": nueva_cant, 
                             "stock_minimo": nuevo_min
                         }
                         utils.supabase.table("Insumos").insert(datos_insert).execute()
-                        st.success(f"✅ Código {nuevo_id}: {nuevo_nombre} agregado exitosamente.")
+                        st.success(f"✅ Insumo {nuevo_codigo} agregado exitosamente.")
                         st.cache_data.clear()
                         time.sleep(1)
                         st.rerun()
                     except Exception as e:
-                        if "duplicate key" in str(e):
-                            st.error(f"⚠️ El ID {nuevo_id} ya existe. Por favor usa otro código.")
-                        else:
-                            st.error(f"Error al guardar: {e}")
+                        st.error(f"Error al guardar: {e}")
                 else:
-                    st.warning("El ID y la Descripción son obligatorios.")
+                    st.warning("El Código y la Descripción son obligatorios.")
 
     # --- PESTAÑA EDICIÓN MAESTRA ---
     with t2:
         column_config = {
-            # --- ID EDITABLE (Quitamos disabled=True) ---
-            "id": st.column_config.NumberColumn("ID / Código", required=True, width="small"),
+            "id": st.column_config.NumberColumn(disabled=True, hidden=True), # Ocultamos el ID numérico interno
+            "codigo": st.column_config.TextColumn("Código SKU", required=True, width="medium", help="Código alfanumérico único"),
             "Descripcion": st.column_config.TextColumn("Descripción del Insumo", width="large", required=True),
             "Cantidad": st.column_config.NumberColumn("Stock Actual", width="small", min_value=0),
             "Unidad": st.column_config.SelectboxColumn("Unidad", options=lista_unidades, required=True, width="small"),
             "stock_minimo": st.column_config.NumberColumn("Mínimo ⚠️", width="small")
         }
         
-        cols_ver = ["id", "Descripcion", "Cantidad", "Unidad", "stock_minimo"]
+        # Mostramos 'codigo' primero
+        cols_ver = ["id", "codigo", "Descripcion", "Cantidad", "Unidad", "stock_minimo"]
         for c in cols_ver:
             if c not in df.columns: df[c] = None
             
@@ -289,7 +290,7 @@ elif opcion == "Insumos":
             num_rows="dynamic",
             use_container_width=True,
             height=500,
-            key="editor_insumos_manual"
+            key="editor_insumos_codigos"
         )
 
         if st.button("💾 Guardar Cambios en Inventario"):
@@ -299,13 +300,17 @@ elif opcion == "Insumos":
             for index, row in edited_df.iterrows():
                 try:
                     datos = {
-                        "id": row["id"], 
+                        "codigo": row["codigo"], # Actualizamos el texto
                         "Descripcion": row["Descripcion"],
                         "Cantidad": row["Cantidad"],
                         "Unidad": row["Unidad"],
                         "stock_minimo": row["stock_minimo"]
                     }
-                    utils.supabase.table("Insumos").upsert(datos).execute()
+                    
+                    if pd.notna(row["id"]):
+                        utils.supabase.table("Insumos").update(datos).eq("id", row["id"]).execute()
+                    else:
+                        utils.supabase.table("Insumos").insert(datos).execute()
                 except Exception as e:
                     pass
                 
